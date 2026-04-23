@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "chams_esp",
+  "version": "${version}",
+  "name": "Chams ESP",
+  "description": "Renders player skins (G) and skeletons (H) through walls.",
+  "authors": ["you"],
+  "contact": {},
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "dev.chams.ChamsMod"
+    ]
+  },
+  "mixins": [
+    "chams.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "fabric-api": "*",
+    "minecraft": "~1.21.11",
+    "java": ">=21"
+  }
+}

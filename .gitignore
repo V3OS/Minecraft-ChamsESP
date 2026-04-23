@@ -1,0 +1,38 @@
+# Gradle
+.gradle/
+build/
+out/
+classes/
+
+# Eclipse
+*.launch
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Fabric
+run/
+.loom-cache/
+
+# VS Code
+.vscode/
+.settings/
+.classpath
+.project
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Credentials / local configs
+local.properties
+*.env
+
+# Gradle wrapper JAR darf eingecheckt werden, alles andere im Cache nicht
+!gradle/wrapper/gradle-wrapper.jar
