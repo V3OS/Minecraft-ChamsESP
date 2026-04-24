@@ -2,6 +2,7 @@ package dev.chams.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import dev.chams.config.ChamsConfig;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.model.EntityModel;
 import net.minecraft.client.model.Model;
@@ -31,22 +32,30 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Ein {@link SubmitNodeCollector}, der alle Modell-/Modellteil-/Item-Submits
- * an eine NO_DEPTH_TEST-Variante des jeweils eingehenden RenderTypes umleitet.
+ * Ein {@link SubmitNodeCollector}, der Modell-/Modellteil-/Item-Submits
+ * an eine NO_DEPTH_TEST-Variante des eingehenden RenderTypes umleitet.
  *
- * Der Klon übernimmt Shader, VertexFormat, Cull, Blend und Textur-Bindings
- * 1:1 aus dem Original – nur Tiefentest und Depth-Write werden deaktiviert.
- * Dadurch werden Body, Rüstung (incl. Hose) und Hand-Items korrekt durch
- * Wände sichtbar, ohne Vertex-Format-Fehler oder falsche Cull-Richtungen.
+ * Filter (aus {@link ChamsConfig}):
+ * <ul>
+ *   <li><b>Glint</b> wird immer geskippt (statisches violettes Muster)</li>
+ *   <li><b>Capes</b> werden geskippt wenn {@code chamsShowCapes} aus ist
+ *       (Cape würde sonst in Render-Order vor dem Skin landen)</li>
+ *   <li><b>Rüstung</b> wird geskippt wenn {@code chamsShowArmor} aus ist</li>
+ * </ul>
+ *
+ * Bei aktivem <b>Glow</b> wird der Tint durch {@code glowColor} ersetzt,
+ * damit der komplette Spieler in der Glow-Farbe leuchtet.
  */
 public final class ChamsSubmitNodeCollector implements SubmitNodeCollector {
 
     private static final int FULL_BRIGHT = 15728880;
 
     private final MultiBufferSource.BufferSource buffers;
+    private final ChamsConfig cfg;
 
     public ChamsSubmitNodeCollector(MultiBufferSource.BufferSource buffers) {
         this.buffers = buffers;
+        this.cfg = ChamsConfig.get();
     }
 
     @Override
@@ -55,23 +64,47 @@ public final class ChamsSubmitNodeCollector implements SubmitNodeCollector {
     }
 
     // ==================================================================
-    //  Hilfsmethode: RenderType für Chams holen.
-    //  Versucht zuerst den Pipeline-Klon (preserves shader/cull/blend/
-    //  vertex-format), fällt sonst auf den generischen ENTITY_SNIPPET-
-    //  basierten Typ zurück (nur wenn Textur bekannt ist).
+    //  Texture-Path-Heuristiken
     // ==================================================================
 
-    private RenderType chamsRt(RenderType rt) {
+    private static boolean isCapeTexture(Identifier id) {
+        if (id == null) return false;
+        String p = id.getPath();
+        return p.contains("capes/") || p.contains("cape.png") || p.contains("textures/entity/cape");
+    }
+
+    private static boolean isArmorTexture(Identifier id) {
+        if (id == null) return false;
+        String p = id.getPath();
+        // Vanilla Armor:        textures/models/armor/...
+        // Neues Equipment-Sys:  textures/entity/equipment/humanoid/...
+        return p.contains("models/armor/") || p.contains("/equipment/");
+    }
+
+    /** Liefert null wenn dieser Submit übersprungen werden soll. */
+    private RenderType resolveChamsRt(RenderType rt, Optional<Identifier> tex) {
+        if (tex.isPresent()) {
+            Identifier id = tex.get();
+            if (ChamsRenderTypeTransform.isGlintTexture(id)) return null;
+            if (!cfg.chamsShowCapes  && isCapeTexture(id))   return null;
+            if (!cfg.chamsShowArmor  && isArmorTexture(id))  return null;
+        }
         RenderType cloned = ChamsRenderTypeTransform.cloneWithNoDepth(rt);
         if (cloned != null) return cloned;
-
-        // Fallback: generische Entity-Pipeline mit extrahierter Textur
-        Optional<Identifier> tex = ChamsRenderTypeTransform.extractTexture(rt);
         return tex.map(ChamsRenderTypes::entityAlways).orElse(null);
     }
 
+    /** Liefert den Tint, der an model/part.render() geht. */
+    private int applyGlow(int color) {
+        if (cfg.glowEnabled) {
+            // Alpha auf voll setzen, RGB aus glowColor
+            return 0xFF000000 | (cfg.glowColor & 0x00FFFFFF);
+        }
+        return (color == 0) ? -1 : color;
+    }
+
     // ==================================================================
-    //  BODY / ARMOR: submitModel + submitModelPart
+    //  BODY / ARMOR
     // ==================================================================
 
     @Override
@@ -85,21 +118,15 @@ public final class ChamsSubmitNodeCollector implements SubmitNodeCollector {
                                 TextureAtlasSprite sprite,
                                 int outline,
                                 ModelFeatureRenderer.CrumblingOverlay crumbling) {
-        // Enchantment-Glint überspringen (statisches violettes Muster)
         Optional<Identifier> tex = ChamsRenderTypeTransform.extractTexture(rt);
-        if (tex.isPresent() && ChamsRenderTypeTransform.isGlintTexture(tex.get())) return;
-
-        RenderType crt = chamsRt(rt);
+        RenderType crt = resolveChamsRt(rt, tex);
         if (crt == null) return;
 
-        // Pose sofort auftragen, da wir nicht auf Mojang's Batch-Schritt warten
         applyAnim(model, state);
-
-        // color=0 = "kein Tint" im neuen Equipment-System; -1 = weiß (kein Tint)
-        int effectiveColor = (color == 0) ? -1 : color;
+        int effColor = applyGlow(color);
 
         VertexConsumer vc = buffers.getBuffer(crt);
-        model.root().render(pose, vc, FULL_BRIGHT, OverlayTexture.NO_OVERLAY, effectiveColor);
+        model.root().render(pose, vc, FULL_BRIGHT, OverlayTexture.NO_OVERLAY, effColor);
     }
 
     @Override
@@ -115,22 +142,15 @@ public final class ChamsSubmitNodeCollector implements SubmitNodeCollector {
                                 ModelFeatureRenderer.CrumblingOverlay crumbling,
                                 int outline) {
         Optional<Identifier> tex = ChamsRenderTypeTransform.extractTexture(rt);
-        if (tex.isPresent() && ChamsRenderTypeTransform.isGlintTexture(tex.get())) return;
-
-        RenderType crt = chamsRt(rt);
+        RenderType crt = resolveChamsRt(rt, tex);
         if (crt == null) return;
 
-        int effectiveColor = (color == 0) ? -1 : color;
+        int effColor = applyGlow(color);
 
         VertexConsumer vc = buffers.getBuffer(crt);
-        part.render(pose, vc, FULL_BRIGHT, OverlayTexture.NO_OVERLAY, effectiveColor);
+        part.render(pose, vc, FULL_BRIGHT, OverlayTexture.NO_OVERLAY, effColor);
     }
 
-    /**
-     * Trägt den aktuellen RenderState auf das Modell auf (Arme, Beine, Kopf,
-     * Cape …). Wird von Mojang normalerweise im deferred Batch gemacht;
-     * wir brauchen es sofort vor dem Rendern.
-     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     private static void applyAnim(Model<?> model, Object state) {
         if (model instanceof EntityModel entityModel && state instanceof EntityRenderState ers) {
@@ -143,8 +163,7 @@ public final class ChamsSubmitNodeCollector implements SubmitNodeCollector {
     }
 
     // ==================================================================
-    //  ITEMS in der Hand (BakedQuads – flache 2-D-Items wie Schwerter,
-    //  Bögen, Leiter …)
+    //  ITEMS in der Hand (flache BakedQuads)
     // ==================================================================
 
     @Override
@@ -160,33 +179,48 @@ public final class ChamsSubmitNodeCollector implements SubmitNodeCollector {
         if (quads == null || quads.isEmpty()) return;
 
         Optional<Identifier> tex = ChamsRenderTypeTransform.extractTexture(rt);
+        // Glint auf Items auch skippen
         if (tex.isPresent() && ChamsRenderTypeTransform.isGlintTexture(tex.get())) return;
 
-        RenderType crt = chamsRt(rt);
+        RenderType crt = ChamsRenderTypeTransform.cloneWithNoDepth(rt);
+        if (crt == null && tex.isPresent()) crt = ChamsRenderTypes.entityAlways(tex.get());
         if (crt == null) return;
 
         VertexConsumer vc = buffers.getBuffer(crt);
         PoseStack.Pose last = pose.last();
 
+        // Glow tint überschreibt alle Quad-Tints
+        boolean glow = cfg.glowEnabled;
+        float gr = 1f, gg = 1f, gb = 1f;
+        if (glow) {
+            gr = ((cfg.glowColor >> 16) & 0xFF) / 255f;
+            gg = ((cfg.glowColor >>  8) & 0xFF) / 255f;
+            gb = ( cfg.glowColor        & 0xFF) / 255f;
+        }
+
         for (int i = 0; i < quads.size(); i++) {
             BakedQuad quad = quads.get(i);
-            int tint = (tintColors != null && i < tintColors.length) ? tintColors[i] : -1;
             float r, g, b, a;
-            if (tint == -1 || tint == 0) {
-                r = g = b = a = 1.0f;
+            if (glow) {
+                r = gr; g = gg; b = gb; a = 1f;
             } else {
-                r = ((tint >> 16) & 0xFF) / 255.0f;
-                g = ((tint >>  8) & 0xFF) / 255.0f;
-                b = ( tint        & 0xFF) / 255.0f;
-                a = ((tint >> 24) & 0xFF) / 255.0f;
-                if (a == 0f) a = 1f;
+                int tint = (tintColors != null && i < tintColors.length) ? tintColors[i] : -1;
+                if (tint == -1 || tint == 0) {
+                    r = g = b = a = 1.0f;
+                } else {
+                    r = ((tint >> 16) & 0xFF) / 255.0f;
+                    g = ((tint >>  8) & 0xFF) / 255.0f;
+                    b = ( tint        & 0xFF) / 255.0f;
+                    a = ((tint >> 24) & 0xFF) / 255.0f;
+                    if (a == 0f) a = 1f;
+                }
             }
             vc.putBulkData(last, quad, r, g, b, a, FULL_BRIGHT, OverlayTexture.NO_OVERLAY);
         }
     }
 
     // ==================================================================
-    //  CUSTOM GEOMETRY – 3-D-Items (Schild, Dreizack, Block-Items …)
+    //  CUSTOM GEOMETRY (3-D Items – Shield, Trident, Block-Items)
     // ==================================================================
 
     @Override
@@ -195,7 +229,8 @@ public final class ChamsSubmitNodeCollector implements SubmitNodeCollector {
         Optional<Identifier> tex = ChamsRenderTypeTransform.extractTexture(rt);
         if (tex.isPresent() && ChamsRenderTypeTransform.isGlintTexture(tex.get())) return;
 
-        RenderType crt = chamsRt(rt);
+        RenderType crt = ChamsRenderTypeTransform.cloneWithNoDepth(rt);
+        if (crt == null && tex.isPresent()) crt = ChamsRenderTypes.entityAlways(tex.get());
         if (crt == null) return;
 
         VertexConsumer vc = buffers.getBuffer(crt);
@@ -203,7 +238,7 @@ public final class ChamsSubmitNodeCollector implements SubmitNodeCollector {
     }
 
     // ==================================================================
-    //  Alles andere ignorieren (Shadow, NameTag, Flame, Blöcke, Partikel)
+    //  Ignore-Liste
     // ==================================================================
 
     @Override public void submitShadow(PoseStack p, float r, List<EntityRenderState.ShadowPiece> l) {}

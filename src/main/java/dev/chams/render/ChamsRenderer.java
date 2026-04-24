@@ -3,7 +3,7 @@ package dev.chams.render;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Axis;
-import dev.chams.ChamsMod;
+import dev.chams.config.ChamsConfig;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
 import net.minecraft.client.Camera;
@@ -16,6 +16,7 @@ import net.minecraft.client.renderer.entity.player.AvatarRenderer;
 import net.minecraft.client.renderer.entity.state.AvatarRenderState;
 import net.minecraft.client.renderer.state.CameraRenderState;
 import net.minecraft.util.Mth;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 
@@ -24,7 +25,6 @@ import java.util.List;
 
 public final class ChamsRenderer {
 
-    // Dicke für die Skelett-Linien
     private static final float LINE_WIDTH = 2.0f;
 
     private ChamsRenderer() {}
@@ -34,9 +34,12 @@ public final class ChamsRenderer {
     }
 
     private static void onRender(WorldRenderContext context) {
-        boolean trueChams = ChamsMod.isSkinEnabled();
-        boolean skeleton  = ChamsMod.isSkeletonEnabled();
-        if (!trueChams && !skeleton) return;
+        ChamsConfig cfg = ChamsConfig.get();
+
+        boolean trueChams = cfg.skinEnabled;
+        boolean skeleton  = cfg.skeletonEnabled;
+        boolean hitbox    = cfg.hitboxEnabled;
+        if (!trueChams && !skeleton && !hitbox) return;
 
         Minecraft mc = Minecraft.getInstance();
         ClientLevel world = mc.level;
@@ -52,35 +55,23 @@ public final class ChamsRenderer {
         List<AbstractClientPlayer> players = new ArrayList<>(world.players());
         players.remove(mc.player);
         players.removeIf(p -> !p.isAlive());
-        // Hinterste zuerst zeichnen, damit nähere drüberliegen
+        // Hinterste zuerst → nähere überdecken
         players.sort((p1, p2) -> Double.compare(
                 p2.distanceToSqr(mc.player),
                 p1.distanceToSqr(mc.player)));
 
-        // ====================================================================
-        //  1. TRUE CHAMS (Skin durch Wände)
-        // ====================================================================
         if (trueChams) {
             renderSkinThroughWalls(mc, matrices, buffers, camPos, tickDelta, players, context);
         }
 
-        // ====================================================================
-        //  2. SKELETON ESP
-        // ====================================================================
-        if (skeleton) {
-            renderSkeletonThroughWalls(matrices, buffers, camPos, tickDelta, players);
+        if (skeleton || hitbox) {
+            renderLinesThroughWalls(matrices, buffers, camPos, tickDelta, players,
+                                    skeleton, hitbox, cfg);
         }
     }
 
     // ------------------------------------------------------------------
-    //  True Chams: kompletter Spieler durch Wände (Body + Armor + Items)
-    //
-    //  Statt das Modell selbst zu transformieren, fahren wir die ganze
-    //  Entity-Render-Pipeline durch dispatcher.submit(...). Wir schieben
-    //  ihr aber einen eigenen SubmitNodeCollector unter, der jeden
-    //  eingehenden RenderType gegen unsere NO_DEPTH_TEST-Variante tauscht.
-    //  So werden Body, Layer (Rüstung, Cape, Elytra, ...) und Hand-Items
-    //  alle ohne Tiefentest gezeichnet - also durch Wände sichtbar.
+    //  True Chams: kompletter Spieler durch Wände
     // ------------------------------------------------------------------
     private static void renderSkinThroughWalls(Minecraft mc, PoseStack matrices,
                                                MultiBufferSource.BufferSource buffers,
@@ -102,51 +93,104 @@ public final class ChamsRenderer {
 
             AvatarRenderer<AbstractClientPlayer> renderer = dispatcher.getPlayerRenderer(player);
 
-            // Frischen RenderState pro Spieler füllen
             AvatarRenderState state = renderer.createRenderState();
             renderer.extractRenderState(player, state, tickDelta);
 
-            // Ganze Render-Pipeline anstoßen. dispatcher.submit() macht Push/
-            // Translate/Layer-Iteration/etc. intern. Layer- und Body-Submits
-            // landen in unserem ChamsSubmitNodeCollector, der die
-            // NO_DEPTH_TEST-Pipeline anwendet.
             dispatcher.submit(state, cameraState, x, y, z, matrices, chamsCollector);
         }
 
-        // Alles, was im Collector gepuffert wurde, an den Framebuffer spülen
         buffers.endBatch();
     }
 
     // ------------------------------------------------------------------
-    //  Skeleton-ESP (bleibt wie vorher – funktionierte schon)
+    //  Line-Pass: Skelett und/oder Hitbox (teilen sich den Line-Buffer)
     // ------------------------------------------------------------------
-    private static void renderSkeletonThroughWalls(PoseStack matrices,
-                                                   MultiBufferSource.BufferSource buffers,
-                                                   Vec3 camPos, float tickDelta,
-                                                   List<AbstractClientPlayer> players) {
+    private static void renderLinesThroughWalls(PoseStack matrices,
+                                                MultiBufferSource.BufferSource buffers,
+                                                Vec3 camPos, float tickDelta,
+                                                List<AbstractClientPlayer> players,
+                                                boolean skeleton, boolean hitbox,
+                                                ChamsConfig cfg) {
+        VertexConsumer lineVc = buffers.getBuffer(ChamsRenderTypes.linesAlways());
+
         for (AbstractClientPlayer player : players) {
             double x = Mth.lerp(tickDelta, player.xo, player.getX()) - camPos.x;
             double y = Mth.lerp(tickDelta, player.yo, player.getY()) - camPos.y;
             double z = Mth.lerp(tickDelta, player.zo, player.getZ()) - camPos.z;
 
-            float healthPct = Mth.clamp(player.getHealth() / player.getMaxHealth(), 0f, 1f);
-            float red = 1.0f - healthPct;
-            float green = healthPct;
-            float blue = 0.1f;
+            if (hitbox) {
+                drawHitbox(matrices, lineVc, player, x, y, z, cfg);
+            }
 
-            matrices.pushPose();
-            matrices.translate(x, y, z);
-
-            VertexConsumer lineConsumer = buffers.getBuffer(ChamsRenderTypes.linesAlways());
-            drawSkeleton(matrices, lineConsumer, player, tickDelta, red, green, blue);
-
-            matrices.popPose();
+            if (skeleton) {
+                float[] col = skeletonColor(player, cfg);
+                matrices.pushPose();
+                matrices.translate(x, y, z);
+                drawSkeleton(matrices, lineVc, player, tickDelta, col[0], col[1], col[2]);
+                matrices.popPose();
+            }
         }
         buffers.endBatch(ChamsRenderTypes.linesAlways());
     }
 
     // ------------------------------------------------------------------
-    //  Skelett-Logik (unverändert)
+    //  Hitbox (AABB um den Spieler)
+    // ------------------------------------------------------------------
+    private static void drawHitbox(PoseStack matrices, VertexConsumer c,
+                                   AbstractClientPlayer player,
+                                   double camDx, double camDy, double camDz,
+                                   ChamsConfig cfg) {
+        AABB bb = player.getBoundingBox();
+        // AABB aktuell in Welt-Koordinaten. Wir brauchen sie relativ zur Kamera.
+        float x1 = (float)(bb.minX - player.getX() + camDx);
+        float y1 = (float)(bb.minY - player.getY() + camDy);
+        float z1 = (float)(bb.minZ - player.getZ() + camDz);
+        float x2 = (float)(bb.maxX - player.getX() + camDx);
+        float y2 = (float)(bb.maxY - player.getY() + camDy);
+        float z2 = (float)(bb.maxZ - player.getZ() + camDz);
+
+        float r = ((cfg.hitboxColor >> 16) & 0xFF) / 255f;
+        float g = ((cfg.hitboxColor >>  8) & 0xFF) / 255f;
+        float b = ( cfg.hitboxColor        & 0xFF) / 255f;
+
+        Matrix4f m = matrices.last().pose();
+
+        // 12 Kanten eines Quaders
+        // untere 4
+        line(c, m, x1,y1,z1, x2,y1,z1, r,g,b,1);
+        line(c, m, x2,y1,z1, x2,y1,z2, r,g,b,1);
+        line(c, m, x2,y1,z2, x1,y1,z2, r,g,b,1);
+        line(c, m, x1,y1,z2, x1,y1,z1, r,g,b,1);
+        // obere 4
+        line(c, m, x1,y2,z1, x2,y2,z1, r,g,b,1);
+        line(c, m, x2,y2,z1, x2,y2,z2, r,g,b,1);
+        line(c, m, x2,y2,z2, x1,y2,z2, r,g,b,1);
+        line(c, m, x1,y2,z2, x1,y2,z1, r,g,b,1);
+        // vertikale 4
+        line(c, m, x1,y1,z1, x1,y2,z1, r,g,b,1);
+        line(c, m, x2,y1,z1, x2,y2,z1, r,g,b,1);
+        line(c, m, x2,y1,z2, x2,y2,z2, r,g,b,1);
+        line(c, m, x1,y1,z2, x1,y2,z2, r,g,b,1);
+    }
+
+    // ------------------------------------------------------------------
+    //  Skeleton-Farb-Modus
+    // ------------------------------------------------------------------
+    private static float[] skeletonColor(AbstractClientPlayer player, ChamsConfig cfg) {
+        if ("fixed".equalsIgnoreCase(cfg.skeletonColorMode)) {
+            return new float[] {
+                    ((cfg.skeletonColor >> 16) & 0xFF) / 255f,
+                    ((cfg.skeletonColor >>  8) & 0xFF) / 255f,
+                    ( cfg.skeletonColor        & 0xFF) / 255f
+            };
+        }
+        // health mode (default)
+        float healthPct = Mth.clamp(player.getHealth() / player.getMaxHealth(), 0f, 1f);
+        return new float[] { 1.0f - healthPct, healthPct, 0.1f };
+    }
+
+    // ------------------------------------------------------------------
+    //  Skeleton-Stickfigur
     // ------------------------------------------------------------------
     private static void drawSkeleton(PoseStack matrices, VertexConsumer c,
                                      AbstractClientPlayer player, float tickDelta,
@@ -156,9 +200,7 @@ public final class ChamsRenderer {
         float bodyYaw = Mth.lerp(tickDelta, player.yBodyRotO, player.yBodyRot);
         matrices.mulPose(Axis.YN.rotationDegrees(bodyYaw));
 
-        if (player.isCrouching()) {
-            matrices.translate(0, -0.2f, 0);
-        }
+        if (player.isCrouching()) matrices.translate(0, -0.2f, 0);
 
         float limbPos   = player.walkAnimation.position(tickDelta);
         float limbSpeed = Math.min(player.walkAnimation.speed(tickDelta), 1.0f);
@@ -178,13 +220,13 @@ public final class ChamsRenderer {
         float pelvisY = 0.75f, neckY = 1.4f;
         float hipX = 0.15f, shoulderX = 0.3f;
         float armLen = 0.65f, legLen = 0.75f;
-        float alpha = 1.0f;
+        float a = 1.0f;
 
         Matrix4f m = matrices.last().pose();
 
-        line(c, m, 0, pelvisY, 0,  0, neckY, 0, red, green, blue, alpha);
-        line(c, m, hipX, pelvisY, 0,  -hipX, pelvisY, 0, red, green, blue, alpha);
-        line(c, m, shoulderX, neckY, 0,  -shoulderX, neckY, 0, red, green, blue, alpha);
+        line(c, m, 0, pelvisY, 0,  0, neckY, 0, red, green, blue, a);
+        line(c, m, hipX, pelvisY, 0,  -hipX, pelvisY, 0, red, green, blue, a);
+        line(c, m, shoulderX, neckY, 0,  -shoulderX, neckY, 0, red, green, blue, a);
 
         float headYaw = Mth.lerp(tickDelta, player.yHeadRotO, player.yHeadRot) - bodyYaw;
         float headPitch = Mth.lerp(tickDelta, player.xRotO, player.getXRot());
@@ -195,34 +237,32 @@ public final class ChamsRenderer {
         matrices.mulPose(Axis.XP.rotationDegrees(headPitch));
 
         Matrix4f headM = matrices.last().pose();
-        line(c, headM, 0, 0, 0,  0, 0.3f, 0, red, green, blue, alpha);
-
-        // kleine Blickrichtungslinie
+        line(c, headM, 0, 0, 0,  0, 0.3f, 0, red, green, blue, a);
         line(c, headM, 0, 0.2f, 0,  0, 0.2f, 0.6f, 0.0f, 1.0f, 1.0f, 0.9f);
         matrices.popPose();
 
         matrices.pushPose();
         matrices.translate(hipX, pelvisY, 0);
         matrices.mulPose(Axis.XP.rotation(leftLegPitch));
-        line(c, matrices.last().pose(), 0, 0, 0,  0, -legLen, 0, red, green, blue, alpha);
+        line(c, matrices.last().pose(), 0, 0, 0,  0, -legLen, 0, red, green, blue, a);
         matrices.popPose();
 
         matrices.pushPose();
         matrices.translate(-hipX, pelvisY, 0);
         matrices.mulPose(Axis.XP.rotation(rightLegPitch));
-        line(c, matrices.last().pose(), 0, 0, 0,  0, -legLen, 0, red, green, blue, alpha);
+        line(c, matrices.last().pose(), 0, 0, 0,  0, -legLen, 0, red, green, blue, a);
         matrices.popPose();
 
         matrices.pushPose();
         matrices.translate(shoulderX, neckY, 0);
         matrices.mulPose(Axis.XP.rotation(leftArmPitch));
-        line(c, matrices.last().pose(), 0, 0, 0,  0, -armLen, 0, red, green, blue, alpha);
+        line(c, matrices.last().pose(), 0, 0, 0,  0, -armLen, 0, red, green, blue, a);
         matrices.popPose();
 
         matrices.pushPose();
         matrices.translate(-shoulderX, neckY, 0);
         matrices.mulPose(Axis.XP.rotation(rightArmPitch));
-        line(c, matrices.last().pose(), 0, 0, 0,  0, -armLen, 0, red, green, blue, alpha);
+        line(c, matrices.last().pose(), 0, 0, 0,  0, -armLen, 0, red, green, blue, a);
         matrices.popPose();
 
         matrices.popPose();
