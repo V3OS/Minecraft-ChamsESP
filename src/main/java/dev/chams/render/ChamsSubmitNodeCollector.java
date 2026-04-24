@@ -53,9 +53,24 @@ public final class ChamsSubmitNodeCollector implements SubmitNodeCollector {
     private final MultiBufferSource.BufferSource buffers;
     private final ChamsConfig cfg;
 
+    /**
+     * Aktuell zu verwendende Glow-Farbe (0xRRGGBB).
+     * Wird vom {@link ChamsRenderer} vor jedem Spieler-Submit via
+     * {@link #setCurrentGlowColor(int)} gesetzt, damit Chroma und
+     * Distance-Color auch bei Glow berücksichtigt werden.
+     * Default: Wert aus Config (Rückwärtskompatibilität).
+     */
+    private int currentGlowColor;
+
     public ChamsSubmitNodeCollector(MultiBufferSource.BufferSource buffers) {
         this.buffers = buffers;
         this.cfg = ChamsConfig.get();
+        this.currentGlowColor = cfg.glowColor;
+    }
+
+    /** Pro Spieler aufgerufen, um Chroma/Distance-Glow zu übergeben. */
+    public void setCurrentGlowColor(int rgb) {
+        this.currentGlowColor = rgb & 0x00FFFFFF;
     }
 
     @Override
@@ -97,8 +112,8 @@ public final class ChamsSubmitNodeCollector implements SubmitNodeCollector {
     /** Liefert den Tint, der an model/part.render() geht. */
     private int applyGlow(int color) {
         if (cfg.glowEnabled) {
-            // Alpha auf voll setzen, RGB aus glowColor
-            return 0xFF000000 | (cfg.glowColor & 0x00FFFFFF);
+            // Alpha auf voll setzen, RGB aus aktueller Glow-Farbe (Chroma/Distance-aware)
+            return 0xFF000000 | (currentGlowColor & 0x00FFFFFF);
         }
         return (color == 0) ? -1 : color;
     }
@@ -193,9 +208,9 @@ public final class ChamsSubmitNodeCollector implements SubmitNodeCollector {
         boolean glow = cfg.glowEnabled;
         float gr = 1f, gg = 1f, gb = 1f;
         if (glow) {
-            gr = ((cfg.glowColor >> 16) & 0xFF) / 255f;
-            gg = ((cfg.glowColor >>  8) & 0xFF) / 255f;
-            gb = ( cfg.glowColor        & 0xFF) / 255f;
+            gr = ((currentGlowColor >> 16) & 0xFF) / 255f;
+            gg = ((currentGlowColor >>  8) & 0xFF) / 255f;
+            gb = ( currentGlowColor        & 0xFF) / 255f;
         }
 
         for (int i = 0; i < quads.size(); i++) {

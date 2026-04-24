@@ -8,22 +8,23 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Consumer;
 
 /**
  * Einstellungs-Screen für Chams ESP.
- * Aufruf via Hotkey (Default: Right Shift) oder aus dem Pause-Menü,
- * wenn wir den Knopf später einbauen.
+ * 2-Spalten-Layout, aufgerufen via Hotkey (Default: Right Shift).
+ *
+ * Linke Spalte : Feature-Toggles, Skin-Optionen, Skelett-Farbe, Farben
+ * Rechte Spalte: Chroma, Distance-Color, Range-Filter
  */
 public final class ChamsConfigScreen extends Screen {
 
     private final Screen parent;
 
-    // Y-Positionen der Color-Boxen für Label-Rendering
-    private int skelColorY = -1;
-    private int glowColorY = -1;
-    private int hitboxColorY = -1;
-    private int colorLabelX = -1;
+    // Labels die wir frei in render() zeichnen wollen
+    private final List<FloatingLabel> labels = new ArrayList<>();
 
     public ChamsConfigScreen(Screen parent) {
         super(Component.literal("Chams ESP - Einstellungen"));
@@ -33,79 +34,127 @@ public final class ChamsConfigScreen extends Screen {
     @Override
     protected void init() {
         ChamsConfig cfg = ChamsConfig.get();
+        labels.clear();
 
-        int cx = this.width / 2;
-        int buttonW = 240;
+        int centerX = this.width / 2;
+        int colWidth = 230;
+        int gap = 20;
+        int leftX = centerX - colWidth - gap / 2;
+        int rightX = centerX + gap / 2;
+
         int h = 20;
         int rowH = 24;
-        int sectionGap = 8;
-        int y = 36;
+        int sectionGap = 10;
+        int startY = 36;
 
-        // ===== Feature Toggles =====
-        y = addToggle(y, rowH, cx, buttonW, h, "Skin-Chams",
+        // ============ LINKE SPALTE ============
+        int y = startY;
+
+        // Feature Toggles
+        addSectionLabel("Features", leftX, y); y += 12;
+        y = addToggle(y, rowH, leftX, colWidth, h, "Skin-Chams",
                 cfg.skinEnabled, v -> { cfg.skinEnabled = v; cfg.save(); });
-        y = addToggle(y, rowH, cx, buttonW, h, "Skelett",
+        y = addToggle(y, rowH, leftX, colWidth, h, "Skelett",
                 cfg.skeletonEnabled, v -> { cfg.skeletonEnabled = v; cfg.save(); });
-        y = addToggle(y, rowH, cx, buttonW, h, "Hitbox",
+        y = addToggle(y, rowH, leftX, colWidth, h, "Hitbox",
                 cfg.hitboxEnabled, v -> { cfg.hitboxEnabled = v; cfg.save(); });
-        y = addToggle(y, rowH, cx, buttonW, h, "Glow",
+        y = addToggle(y, rowH, leftX, colWidth, h, "Glow",
                 cfg.glowEnabled, v -> { cfg.glowEnabled = v; cfg.save(); });
         y += sectionGap;
 
-        // ===== Skin-Chams Sub-Optionen =====
-        y = addToggle(y, rowH, cx, buttonW, h, "Ruestung anzeigen",
+        // Skin-Chams Sub-Optionen
+        addSectionLabel("Skin-Chams Optionen", leftX, y); y += 12;
+        y = addToggle(y, rowH, leftX, colWidth, h, "Ruestung anzeigen",
                 cfg.chamsShowArmor, v -> { cfg.chamsShowArmor = v; cfg.save(); });
-        y = addToggle(y, rowH, cx, buttonW, h, "Capes anzeigen",
+        y = addToggle(y, rowH, leftX, colWidth, h, "Capes anzeigen",
                 cfg.chamsShowCapes, v -> { cfg.chamsShowCapes = v; cfg.save(); });
         y += sectionGap;
 
-        // ===== Skelett-Farbmodus =====
+        // Skelett-Farbmodus
+        addSectionLabel("Skelett-Modus", leftX, y); y += 12;
         addRenderableWidget(CycleButton.<String>builder(
                         val -> Component.literal("health".equals(val) ? "Health (Rot->Gruen)" : "Fest (Hex)"),
                         cfg.skeletonColorMode)
                 .withValues("health", "fixed")
-                .create(cx - buttonW/2, y, buttonW, h,
-                        Component.literal("Skelett-Modus"),
+                .create(leftX, y, colWidth, h,
+                        Component.literal("Skelett"),
                         (btn, v) -> { cfg.skeletonColorMode = v; cfg.save(); }));
         y += rowH + sectionGap;
 
-        // ===== Color EditBoxes =====
-        // Labels: links, Boxen: rechts
+        // Color EditBoxes
+        addSectionLabel("Farben (Hex RRGGBB)", leftX, y); y += 12;
         int boxW = 80;
-        int boxX = cx + 4;
-        colorLabelX = cx - 120;
+        int boxX = leftX + colWidth - boxW;
+        y = addColorRow("Skelett", boxX, y, boxW, h, leftX,
+                cfg.skeletonColor, v -> { cfg.skeletonColor = v; cfg.save(); }, rowH);
+        y = addColorRow("Glow", boxX, y, boxW, h, leftX,
+                cfg.glowColor, v -> { cfg.glowColor = v; cfg.save(); }, rowH);
+        y = addColorRow("Hitbox", boxX, y, boxW, h, leftX,
+                cfg.hitboxColor, v -> { cfg.hitboxColor = v; cfg.save(); }, rowH);
 
-        skelColorY   = y; addColorBox(boxX, y, boxW, h, cfg.skeletonColor,
-                v -> { cfg.skeletonColor = v; cfg.save(); });  y += rowH;
+        // ============ RECHTE SPALTE ============
+        y = startY;
 
-        glowColorY   = y; addColorBox(boxX, y, boxW, h, cfg.glowColor,
-                v -> { cfg.glowColor = v; cfg.save(); });      y += rowH;
+        // Chroma
+        addSectionLabel("Chroma (Rainbow)", rightX, y); y += 12;
+        y = addToggle(y, rowH, rightX, colWidth, h, "Skelett Chroma",
+                cfg.chromaSkeleton, v -> { cfg.chromaSkeleton = v; cfg.save(); });
+        y = addToggle(y, rowH, rightX, colWidth, h, "Hitbox Chroma",
+                cfg.chromaHitbox, v -> { cfg.chromaHitbox = v; cfg.save(); });
+        y = addToggle(y, rowH, rightX, colWidth, h, "Glow Chroma",
+                cfg.chromaGlow, v -> { cfg.chromaGlow = v; cfg.save(); });
+        y = addFloatRow("Chroma-Speed (Zyklen/s)", rightX, y, colWidth, boxW, h,
+                cfg.chromaSpeed, 0.01f, 5f, v -> { cfg.chromaSpeed = v; cfg.save(); }, rowH);
+        y += sectionGap;
 
-        hitboxColorY = y; addColorBox(boxX, y, boxW, h, cfg.hitboxColor,
-                v -> { cfg.hitboxColor = v; cfg.save(); });    y += rowH + sectionGap;
+        // Distance Color
+        addSectionLabel("Distance-Color", rightX, y); y += 12;
+        y = addToggle(y, rowH, rightX, colWidth, h, "Distance Color aktiv",
+                cfg.distanceColorEnabled, v -> { cfg.distanceColorEnabled = v; cfg.save(); });
+        y = addColorRow("Farbe nah", rightX + colWidth - boxW, y, boxW, h, rightX,
+                cfg.distanceColorClose, v -> { cfg.distanceColorClose = v; cfg.save(); }, rowH);
+        y = addColorRow("Farbe fern", rightX + colWidth - boxW, y, boxW, h, rightX,
+                cfg.distanceColorFar, v -> { cfg.distanceColorFar = v; cfg.save(); }, rowH);
+        y = addFloatRow("Max-Distanz (Bloecke)", rightX, y, colWidth, boxW, h,
+                cfg.distanceColorMax, 1f, 256f, v -> { cfg.distanceColorMax = v; cfg.save(); }, rowH);
+        y += sectionGap;
 
-        // ===== Close Button =====
+        // Range Filter
+        addSectionLabel("Range-Filter", rightX, y); y += 12;
+        y = addToggle(y, rowH, rightX, colWidth, h, "Nur nahe Spieler rendern",
+                cfg.rangeEnabled, v -> { cfg.rangeEnabled = v; cfg.save(); });
+        y = addFloatRow("Max Range (Bloecke)", rightX, y, colWidth, boxW, h,
+                cfg.rangeMaxBlocks, 1f, 512f, v -> { cfg.rangeMaxBlocks = v; cfg.save(); }, rowH);
+
+        // ============ FOOTER: Close Button mittig ============
+        int closeY = this.height - 36;
         addRenderableWidget(Button.builder(
                 Component.literal("Speichern & Schliessen"),
                 b -> this.onClose()
-        ).bounds(cx - buttonW/2, y, buttonW, h).build());
+        ).bounds(centerX - 120, closeY, 240, h).build());
     }
 
-    private int addToggle(int y, int rowH, int cx, int buttonW, int h,
+    // ------------------------------------------------------------------
+    //  Hilfs-Adder
+    // ------------------------------------------------------------------
+
+    private int addToggle(int y, int rowH, int x, int w, int h,
                           String label, boolean initial, Consumer<Boolean> onChange) {
         addRenderableWidget(CycleButton.booleanBuilder(
                         Component.literal("\u00A7aAN"),
                         Component.literal("\u00A7cAUS"),
                         initial)
-                .create(cx - buttonW/2, y, buttonW, h,
+                .create(x, y, w, h,
                         Component.literal(label),
                         (btn, v) -> onChange.accept(v)));
         return y + rowH;
     }
 
-    private void addColorBox(int x, int y, int w, int h, int initialColor,
-                             Consumer<Integer> onChange) {
-        EditBox box = new EditBox(this.font, x, y, w, h, Component.literal(""));
+    /** Farb-Feld: links Label, rechts 6-stellige Hex-Box. */
+    private int addColorRow(String label, int boxX, int y, int boxW, int h,
+                            int labelX, int initialColor,
+                            Consumer<Integer> onChange, int rowH) {
+        EditBox box = new EditBox(this.font, boxX, y, boxW, h, Component.literal(""));
         box.setMaxLength(6);
         box.setValue(String.format("%06X", initialColor & 0xFFFFFF));
         box.setResponder(val -> {
@@ -116,7 +165,44 @@ public final class ChamsConfigScreen extends Screen {
             } catch (NumberFormatException ignored) {}
         });
         addRenderableWidget(box);
+        labels.add(new FloatingLabel(label + ":", labelX, y + 6, 0xFFFFFF));
+        return y + rowH;
     }
+
+    /** Float-Feld: links Label, rechts Zahlen-Box mit Clamp. */
+    private int addFloatRow(String label, int x, int y, int rowW, int boxW, int h,
+                            float initial, float min, float max,
+                            Consumer<Float> onChange, int rowH) {
+        int boxX = x + rowW - boxW;
+        EditBox box = new EditBox(this.font, boxX, y, boxW, h, Component.literal(""));
+        box.setMaxLength(8);
+        box.setValue(formatFloat(initial));
+        box.setResponder(val -> {
+            if (val == null || val.isEmpty()) return;
+            try {
+                float parsed = Float.parseFloat(val);
+                if (!Float.isFinite(parsed)) return;
+                parsed = Math.max(min, Math.min(max, parsed));
+                onChange.accept(parsed);
+            } catch (NumberFormatException ignored) {}
+        });
+        addRenderableWidget(box);
+        labels.add(new FloatingLabel(label + ":", x, y + 6, 0xFFFFFF));
+        return y + rowH;
+    }
+
+    private void addSectionLabel(String text, int x, int y) {
+        labels.add(new FloatingLabel("\u00A7e" + text, x, y, 0xFFFF55));
+    }
+
+    private static String formatFloat(float v) {
+        if (v == (int) v) return String.valueOf((int) v);
+        return String.format(java.util.Locale.ROOT, "%.2f", v);
+    }
+
+    // ------------------------------------------------------------------
+    //  Render
+    // ------------------------------------------------------------------
 
     @Override
     public void render(GuiGraphics ctx, int mx, int my, float dt) {
@@ -125,12 +211,9 @@ public final class ChamsConfigScreen extends Screen {
         // Titel
         ctx.drawCenteredString(this.font, this.title, this.width / 2, 12, 0xFFFFFF);
 
-        // Color-Labels links neben den EditBoxes
-        if (colorLabelX >= 0) {
-            int lblOff = 6;
-            if (skelColorY   >= 0) ctx.drawString(this.font, "Skelett-Farbe (Hex):", colorLabelX, skelColorY + lblOff, 0xFFFFFF, false);
-            if (glowColorY   >= 0) ctx.drawString(this.font, "Glow-Farbe (Hex):",    colorLabelX, glowColorY + lblOff, 0xFFFFFF, false);
-            if (hitboxColorY >= 0) ctx.drawString(this.font, "Hitbox-Farbe (Hex):",  colorLabelX, hitboxColorY + lblOff, 0xFFFFFF, false);
+        // Freitext-Labels (Section-Header, Farb-/Float-Labels)
+        for (FloatingLabel lbl : labels) {
+            ctx.drawString(this.font, lbl.text, lbl.x, lbl.y, lbl.color, false);
         }
 
         // Footer-Hinweis
@@ -144,4 +227,6 @@ public final class ChamsConfigScreen extends Screen {
         ChamsConfig.get().save();
         if (this.minecraft != null) this.minecraft.setScreen(this.parent);
     }
+
+    private record FloatingLabel(String text, int x, int y, int color) {}
 }

@@ -38,6 +38,25 @@ public final class ChamsConfig {
     public int glowColor   = 0xFF44AA; // magenta
     public int hitboxColor = 0xFFFF00; // gelb
 
+    // ---- Distance Color ------------------------------------------------
+    /** Wenn true, wird die Farbe zwischen close/far je nach Distanz interpoliert. */
+    public boolean distanceColorEnabled = false;
+    public int   distanceColorClose = 0xFF2222; // rot fuer nahe Spieler
+    public int   distanceColorFar   = 0x22FF22; // gruen fuer weit entfernte
+    public float distanceColorMax   = 50f;      // ab dieser Distanz = farColor
+
+    // ---- Chroma (animierter Rainbow-Cycle) -----------------------------
+    public boolean chromaSkeleton = false;
+    public boolean chromaHitbox   = false;
+    public boolean chromaGlow     = false;
+    /** Zyklen pro Sekunde (0.5 = ein Regenbogen alle 2s). */
+    public float chromaSpeed = 0.3f;
+
+    // ---- Range Filter --------------------------------------------------
+    /** Wenn true, werden nur Spieler innerhalb rangeMaxBlocks gerendert. */
+    public boolean rangeEnabled   = false;
+    public float   rangeMaxBlocks = 64f;
+
     // ---- Hotkeys (GLFW Key-Codes) --------------------------------------
     public int hotkeySkin      = GLFW.GLFW_KEY_G;
     public int hotkeySkeleton  = GLFW.GLFW_KEY_H;

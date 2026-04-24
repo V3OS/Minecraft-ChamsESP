@@ -55,6 +55,13 @@ public final class ChamsRenderer {
         List<AbstractClientPlayer> players = new ArrayList<>(world.players());
         players.remove(mc.player);
         players.removeIf(p -> !p.isAlive());
+
+        // Range-Filter
+        if (cfg.rangeEnabled) {
+            double maxSq = (double) cfg.rangeMaxBlocks * (double) cfg.rangeMaxBlocks;
+            players.removeIf(p -> p.distanceToSqr(mc.player) > maxSq);
+        }
+
         // Hinterste zuerst → nähere überdecken
         players.sort((p1, p2) -> Double.compare(
                 p2.distanceToSqr(mc.player),
@@ -85,11 +92,16 @@ public final class ChamsRenderer {
         if (cameraState == null) return;
 
         ChamsSubmitNodeCollector chamsCollector = new ChamsSubmitNodeCollector(buffers);
+        ChamsConfig cfg = ChamsConfig.get();
 
         for (AbstractClientPlayer player : players) {
             double x = Mth.lerp(tickDelta, player.xo, player.getX()) - camPos.x;
             double y = Mth.lerp(tickDelta, player.yo, player.getY()) - camPos.y;
             double z = Mth.lerp(tickDelta, player.zo, player.getZ()) - camPos.z;
+
+            // Per-Player Glow-Farbe (berücksichtigt Chroma + Distance)
+            int glowCol = ColorResolver.resolve(ColorResolver.Feature.GLOW, player, mc.player, cfg);
+            chamsCollector.setCurrentGlowColor(glowCol);
 
             AvatarRenderer<AbstractClientPlayer> renderer = dispatcher.getPlayerRenderer(player);
 
@@ -112,6 +124,7 @@ public final class ChamsRenderer {
                                                 boolean skeleton, boolean hitbox,
                                                 ChamsConfig cfg) {
         VertexConsumer lineVc = buffers.getBuffer(ChamsRenderTypes.linesAlways());
+        AbstractClientPlayer self = Minecraft.getInstance().player;
 
         for (AbstractClientPlayer player : players) {
             double x = Mth.lerp(tickDelta, player.xo, player.getX()) - camPos.x;
@@ -119,11 +132,13 @@ public final class ChamsRenderer {
             double z = Mth.lerp(tickDelta, player.zo, player.getZ()) - camPos.z;
 
             if (hitbox) {
-                drawHitbox(matrices, lineVc, player, x, y, z, cfg);
+                int hitCol = ColorResolver.resolve(ColorResolver.Feature.HITBOX, player, self, cfg);
+                drawHitbox(matrices, lineVc, player, x, y, z, hitCol);
             }
 
             if (skeleton) {
-                float[] col = skeletonColor(player, cfg);
+                int skCol = ColorResolver.resolve(ColorResolver.Feature.SKELETON, player, self, cfg);
+                float[] col = ColorResolver.toFloats(skCol);
                 matrices.pushPose();
                 matrices.translate(x, y, z);
                 drawSkeleton(matrices, lineVc, player, tickDelta, col[0], col[1], col[2]);
@@ -139,7 +154,7 @@ public final class ChamsRenderer {
     private static void drawHitbox(PoseStack matrices, VertexConsumer c,
                                    AbstractClientPlayer player,
                                    double camDx, double camDy, double camDz,
-                                   ChamsConfig cfg) {
+                                   int colorRgb) {
         AABB bb = player.getBoundingBox();
         // AABB aktuell in Welt-Koordinaten. Wir brauchen sie relativ zur Kamera.
         float x1 = (float)(bb.minX - player.getX() + camDx);
@@ -149,9 +164,9 @@ public final class ChamsRenderer {
         float y2 = (float)(bb.maxY - player.getY() + camDy);
         float z2 = (float)(bb.maxZ - player.getZ() + camDz);
 
-        float r = ((cfg.hitboxColor >> 16) & 0xFF) / 255f;
-        float g = ((cfg.hitboxColor >>  8) & 0xFF) / 255f;
-        float b = ( cfg.hitboxColor        & 0xFF) / 255f;
+        float r = ((colorRgb >> 16) & 0xFF) / 255f;
+        float g = ((colorRgb >>  8) & 0xFF) / 255f;
+        float b = ( colorRgb        & 0xFF) / 255f;
 
         Matrix4f m = matrices.last().pose();
 
@@ -171,22 +186,6 @@ public final class ChamsRenderer {
         line(c, m, x2,y1,z1, x2,y2,z1, r,g,b,1);
         line(c, m, x2,y1,z2, x2,y2,z2, r,g,b,1);
         line(c, m, x1,y1,z2, x1,y2,z2, r,g,b,1);
-    }
-
-    // ------------------------------------------------------------------
-    //  Skeleton-Farb-Modus
-    // ------------------------------------------------------------------
-    private static float[] skeletonColor(AbstractClientPlayer player, ChamsConfig cfg) {
-        if ("fixed".equalsIgnoreCase(cfg.skeletonColorMode)) {
-            return new float[] {
-                    ((cfg.skeletonColor >> 16) & 0xFF) / 255f,
-                    ((cfg.skeletonColor >>  8) & 0xFF) / 255f,
-                    ( cfg.skeletonColor        & 0xFF) / 255f
-            };
-        }
-        // health mode (default)
-        float healthPct = Mth.clamp(player.getHealth() / player.getMaxHealth(), 0f, 1f);
-        return new float[] { 1.0f - healthPct, healthPct, 0.1f };
     }
 
     // ------------------------------------------------------------------
