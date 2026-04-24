@@ -43,15 +43,21 @@ public final class ChamsConfigScreen extends Screen {
         int rightX = centerX + gap / 2;
 
         int h = 20;
-        int rowH = 24;
-        int sectionGap = 10;
-        int startY = 36;
+        int rowH = 22;
+        int sectionGap = 8;
+        int startY = 30;
 
         // ============ LINKE SPALTE ============
         int y = startY;
 
+        // Master Toggle (prominent oben)
+        addSectionLabel("ESP Master", leftX, y); y += 10;
+        y = addToggle(y, rowH, leftX, colWidth, h, "\u00A76ESP Master",
+                cfg.masterEnabled, v -> { cfg.masterEnabled = v; cfg.save(); });
+        y += sectionGap;
+
         // Feature Toggles
-        addSectionLabel("Features", leftX, y); y += 12;
+        addSectionLabel("Features", leftX, y); y += 10;
         y = addToggle(y, rowH, leftX, colWidth, h, "Skin-Chams",
                 cfg.skinEnabled, v -> { cfg.skinEnabled = v; cfg.save(); });
         y = addToggle(y, rowH, leftX, colWidth, h, "Skelett",
@@ -60,10 +66,12 @@ public final class ChamsConfigScreen extends Screen {
                 cfg.hitboxEnabled, v -> { cfg.hitboxEnabled = v; cfg.save(); });
         y = addToggle(y, rowH, leftX, colWidth, h, "Glow",
                 cfg.glowEnabled, v -> { cfg.glowEnabled = v; cfg.save(); });
+        y = addToggle(y, rowH, leftX, colWidth, h, "Tracers",
+                cfg.tracersEnabled, v -> { cfg.tracersEnabled = v; cfg.save(); });
         y += sectionGap;
 
         // Skin-Chams Sub-Optionen
-        addSectionLabel("Skin-Chams Optionen", leftX, y); y += 12;
+        addSectionLabel("Skin-Chams Optionen", leftX, y); y += 10;
         y = addToggle(y, rowH, leftX, colWidth, h, "Ruestung anzeigen",
                 cfg.chamsShowArmor, v -> { cfg.chamsShowArmor = v; cfg.save(); });
         y = addToggle(y, rowH, leftX, colWidth, h, "Capes anzeigen",
@@ -71,7 +79,7 @@ public final class ChamsConfigScreen extends Screen {
         y += sectionGap;
 
         // Skelett-Farbmodus
-        addSectionLabel("Skelett-Modus", leftX, y); y += 12;
+        addSectionLabel("Skelett-Modus", leftX, y); y += 10;
         addRenderableWidget(CycleButton.<String>builder(
                         val -> Component.literal("health".equals(val) ? "Health (Rot->Gruen)" : "Fest (Hex)"),
                         cfg.skeletonColorMode)
@@ -82,7 +90,7 @@ public final class ChamsConfigScreen extends Screen {
         y += rowH + sectionGap;
 
         // Color EditBoxes
-        addSectionLabel("Farben (Hex RRGGBB)", leftX, y); y += 12;
+        addSectionLabel("Farben (Hex RRGGBB)", leftX, y); y += 10;
         int boxW = 80;
         int boxX = leftX + colWidth - boxW;
         y = addColorRow("Skelett", boxX, y, boxW, h, leftX,
@@ -91,24 +99,34 @@ public final class ChamsConfigScreen extends Screen {
                 cfg.glowColor, v -> { cfg.glowColor = v; cfg.save(); }, rowH);
         y = addColorRow("Hitbox", boxX, y, boxW, h, leftX,
                 cfg.hitboxColor, v -> { cfg.hitboxColor = v; cfg.save(); }, rowH);
+        y = addColorRow("Tracer", boxX, y, boxW, h, leftX,
+                cfg.tracerColor, v -> { cfg.tracerColor = v; cfg.save(); }, rowH);
 
         // ============ RECHTE SPALTE ============
         y = startY;
 
         // Chroma
-        addSectionLabel("Chroma (Rainbow)", rightX, y); y += 12;
+        addSectionLabel("Chroma (Rainbow)", rightX, y); y += 10;
         y = addToggle(y, rowH, rightX, colWidth, h, "Skelett Chroma",
                 cfg.chromaSkeleton, v -> { cfg.chromaSkeleton = v; cfg.save(); });
         y = addToggle(y, rowH, rightX, colWidth, h, "Hitbox Chroma",
                 cfg.chromaHitbox, v -> { cfg.chromaHitbox = v; cfg.save(); });
         y = addToggle(y, rowH, rightX, colWidth, h, "Glow Chroma",
                 cfg.chromaGlow, v -> { cfg.chromaGlow = v; cfg.save(); });
+        y = addToggle(y, rowH, rightX, colWidth, h, "Tracer Chroma",
+                cfg.chromaTracer, v -> { cfg.chromaTracer = v; cfg.save(); });
         y = addFloatRow("Chroma-Speed (Zyklen/s)", rightX, y, colWidth, boxW, h,
                 cfg.chromaSpeed, 0.01f, 5f, v -> { cfg.chromaSpeed = v; cfg.save(); }, rowH);
         y += sectionGap;
 
+        // Team Color
+        addSectionLabel("Team-Color", rightX, y); y += 10;
+        y = addToggle(y, rowH, rightX, colWidth, h, "Team-Farbe aus Scoreboard",
+                cfg.teamColorEnabled, v -> { cfg.teamColorEnabled = v; cfg.save(); });
+        y += sectionGap;
+
         // Distance Color
-        addSectionLabel("Distance-Color", rightX, y); y += 12;
+        addSectionLabel("Distance-Color", rightX, y); y += 10;
         y = addToggle(y, rowH, rightX, colWidth, h, "Distance Color aktiv",
                 cfg.distanceColorEnabled, v -> { cfg.distanceColorEnabled = v; cfg.save(); });
         y = addColorRow("Farbe nah", rightX + colWidth - boxW, y, boxW, h, rightX,
@@ -119,12 +137,16 @@ public final class ChamsConfigScreen extends Screen {
                 cfg.distanceColorMax, 1f, 256f, v -> { cfg.distanceColorMax = v; cfg.save(); }, rowH);
         y += sectionGap;
 
-        // Range Filter
-        addSectionLabel("Range-Filter", rightX, y); y += 12;
-        y = addToggle(y, rowH, rightX, colWidth, h, "Nur nahe Spieler rendern",
+        // Filter (Range + FOV)
+        addSectionLabel("Filter", rightX, y); y += 10;
+        y = addToggle(y, rowH, rightX, colWidth, h, "Range-Limit aktiv",
                 cfg.rangeEnabled, v -> { cfg.rangeEnabled = v; cfg.save(); });
         y = addFloatRow("Max Range (Bloecke)", rightX, y, colWidth, boxW, h,
                 cfg.rangeMaxBlocks, 1f, 512f, v -> { cfg.rangeMaxBlocks = v; cfg.save(); }, rowH);
+        y = addToggle(y, rowH, rightX, colWidth, h, "FOV-Limit aktiv",
+                cfg.fovLimitEnabled, v -> { cfg.fovLimitEnabled = v; cfg.save(); });
+        y = addFloatRow("FOV-Winkel (Grad)", rightX, y, colWidth, boxW, h,
+                cfg.fovLimitDegrees, 1f, 180f, v -> { cfg.fovLimitDegrees = v; cfg.save(); }, rowH);
 
         // ============ FOOTER: Close Button mittig ============
         int closeY = this.height - 36;

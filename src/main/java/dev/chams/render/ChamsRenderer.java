@@ -19,6 +19,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
+import org.joml.Vector3fc;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -36,10 +37,14 @@ public final class ChamsRenderer {
     private static void onRender(WorldRenderContext context) {
         ChamsConfig cfg = ChamsConfig.get();
 
+        // Master-Toggle: alles aus
+        if (!cfg.masterEnabled) return;
+
         boolean trueChams = cfg.skinEnabled;
         boolean skeleton  = cfg.skeletonEnabled;
         boolean hitbox    = cfg.hitboxEnabled;
-        if (!trueChams && !skeleton && !hitbox) return;
+        boolean tracers   = cfg.tracersEnabled;
+        if (!trueChams && !skeleton && !hitbox && !tracers) return;
 
         Minecraft mc = Minecraft.getInstance();
         ClientLevel world = mc.level;
@@ -62,6 +67,11 @@ public final class ChamsRenderer {
             players.removeIf(p -> p.distanceToSqr(mc.player) > maxSq);
         }
 
+        // FOV-Filter: nur Spieler im Blickkegel rendern
+        if (cfg.fovLimitEnabled && !players.isEmpty()) {
+            applyFovFilter(players, camera, camPos, cfg.fovLimitDegrees);
+        }
+
         // Hinterste zuerst → nähere überdecken
         players.sort((p1, p2) -> Double.compare(
                 p2.distanceToSqr(mc.player),
@@ -71,10 +81,32 @@ public final class ChamsRenderer {
             renderSkinThroughWalls(mc, matrices, buffers, camPos, tickDelta, players, context);
         }
 
-        if (skeleton || hitbox) {
-            renderLinesThroughWalls(matrices, buffers, camPos, tickDelta, players,
-                                    skeleton, hitbox, cfg);
+        if (skeleton || hitbox || tracers) {
+            renderLinesThroughWalls(matrices, buffers, camera, camPos, tickDelta, players,
+                                    skeleton, hitbox, tracers, cfg);
         }
+    }
+
+    // ------------------------------------------------------------------
+    //  FOV-Filter
+    // ------------------------------------------------------------------
+    private static void applyFovFilter(List<AbstractClientPlayer> players,
+                                       Camera camera, Vec3 camPos, float fovDegrees) {
+        Vector3fc fwd = camera.forwardVector();
+        double lx = fwd.x(), ly = fwd.y(), lz = fwd.z();
+
+        double halfFov = Math.max(1.0, Math.min(180.0, fovDegrees)) * 0.5;
+        double cosMax  = Math.cos(Math.toRadians(halfFov));
+
+        players.removeIf(p -> {
+            double dx = p.getX() - camPos.x;
+            double dy = p.getY() + p.getBbHeight() * 0.5 - camPos.y;
+            double dz = p.getZ() - camPos.z;
+            double len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (len < 0.01) return false; // direkt auf/im Spieler → drin lassen
+            double cosA = (dx * lx + dy * ly + dz * lz) / len;
+            return cosA < cosMax;
+        });
     }
 
     // ------------------------------------------------------------------
@@ -119,12 +151,19 @@ public final class ChamsRenderer {
     // ------------------------------------------------------------------
     private static void renderLinesThroughWalls(PoseStack matrices,
                                                 MultiBufferSource.BufferSource buffers,
+                                                Camera camera,
                                                 Vec3 camPos, float tickDelta,
                                                 List<AbstractClientPlayer> players,
                                                 boolean skeleton, boolean hitbox,
-                                                ChamsConfig cfg) {
+                                                boolean tracers, ChamsConfig cfg) {
         VertexConsumer lineVc = buffers.getBuffer(ChamsRenderTypes.linesAlways());
         AbstractClientPlayer self = Minecraft.getInstance().player;
+
+        // Kamera-Forward einmal pro Frame (fuer Tracer-Anker)
+        Vector3fc fwd = camera.forwardVector();
+        float fwdX = fwd.x();
+        float fwdY = fwd.y();
+        float fwdZ = fwd.z();
 
         for (AbstractClientPlayer player : players) {
             double x = Mth.lerp(tickDelta, player.xo, player.getX()) - camPos.x;
@@ -144,8 +183,39 @@ public final class ChamsRenderer {
                 drawSkeleton(matrices, lineVc, player, tickDelta, col[0], col[1], col[2]);
                 matrices.popPose();
             }
+
+            if (tracers) {
+                int trCol = ColorResolver.resolve(ColorResolver.Feature.TRACER, player, self, cfg);
+                drawTracer(matrices, lineVc, player, x, y, z, fwdX, fwdY, fwdZ, trCol);
+            }
         }
         buffers.endBatch(ChamsRenderTypes.linesAlways());
+    }
+
+    // ------------------------------------------------------------------
+    //  Tracer: Linie vom unteren Bildschirmrand zum Spieler
+    // ------------------------------------------------------------------
+    private static void drawTracer(PoseStack matrices, VertexConsumer c,
+                                   AbstractClientPlayer player,
+                                   double camDx, double camDy, double camDz,
+                                   float fwdX, float fwdY, float fwdZ,
+                                   int colorRgb) {
+        float r = ((colorRgb >> 16) & 0xFF) / 255f;
+        float g = ((colorRgb >>  8) & 0xFF) / 255f;
+        float b = ( colorRgb        & 0xFF) / 255f;
+
+        // Startpunkt: 1 Block vor der Kamera, 0.35 unter der Horizontalen
+        // -> Tracer startet optisch am unteren Bildschirmrand
+        float sx = fwdX * 1.0f;
+        float sy = fwdY * 1.0f - 0.35f;
+        float sz = fwdZ * 1.0f;
+
+        // Endpunkt: Mitte des Spieler-Modells
+        float ex = (float) camDx;
+        float ey = (float) (camDy + player.getBbHeight() * 0.5f);
+        float ez = (float) camDz;
+
+        line(c, matrices.last().pose(), sx, sy, sz, ex, ey, ez, r, g, b, 1f);
     }
 
     // ------------------------------------------------------------------

@@ -14,7 +14,21 @@ Built on the modern deferred rendering pipeline (`SubmitNodeCollector` / `Render
 | **Skeleton ESP** | Stick-figure wireframe, health-based coloring | `H` |
 | **Hitbox ESP** | Bounding box around each player | `J` |
 | **Glow** | Full-player color tint silhouette | `K` |
+| **Tracers** | Line from your view to each player | `Y` |
+| **ESP Master Toggle** | Kill-switch for all ESP features at once | `Right Ctrl` |
 | **Settings Menu** | In-game configuration screen | `Right Shift` |
+
+### Coloring options (per-feature in settings)
+
+- **Chroma** — animated HSV rainbow cycle (skeleton / hitbox / glow / tracer independently)
+- **Team color** — use the player's scoreboard team color
+- **Distance color** — lerp between a near and a far color based on range
+- Fallback fixed hex color or (skeleton only) health-based red→green
+
+### Filters
+
+- **Range limit** — only render players within N blocks
+- **FOV limit** — only render players within a configurable view-cone angle
 
 All feature keys can be rebound in Minecraft's standard **Options → Controls → Chams ESP** section.
 
@@ -82,9 +96,9 @@ Ordered roughly by priority / impact.
 
 ### Coloring
 
-- [ ] **Distance color** — lerp between near/far color by player distance, with configurable radius
-- [ ] **Chroma / Rainbow** — time-animated hue cycle, per-feature toggle (skeleton, hitbox, glow)
-- [ ] **Team color** — use scoreboard team color if player is on a team
+- [x] **Distance color** — lerp between near/far color by player distance, with configurable radius
+- [x] **Chroma / Rainbow** — time-animated hue cycle, per-feature toggle (skeleton, hitbox, glow, tracer)
+- [x] **Team color** — use scoreboard team color if player is on a team
 - [ ] **Per-player override** — friend list with custom color, priority list
 
 ### Chams variants
@@ -98,7 +112,7 @@ Ordered roughly by priority / impact.
 ### More ESP types
 
 - [ ] **2D box ESP** — screen-space rectangle around each player
-- [ ] **Tracers** — line from crosshair (or screen bottom) to each player
+- [x] **Tracers** — line from crosshair (or screen bottom) to each player
 - [ ] **Health bar** — 2D (overlay) or 3D (billboard)
 - [ ] **Distance / Name text** — floating text above player
 - [ ] **Item ESP** — highlight dropped items through walls
@@ -106,12 +120,12 @@ Ordered roughly by priority / impact.
 
 ### Filters & Quality-of-life
 
-- [ ] **Range limit** — only render within N blocks
-- [ ] **FOV limit** — only render players in front of camera
+- [x] **Range limit** — only render within N blocks
+- [x] **FOV limit** — only render players in front of camera
 - [ ] **Friend list** — exclude or color-tag specific usernames
 - [ ] **Team-mate filter** — hide same-team players
 - [ ] **Config profiles** — save/load named presets (pvp / exploration / spectator)
-- [ ] **Master toggle** — single key to disable all features at once
+- [x] **Master toggle** — single key to disable all features at once
 - [ ] **Fade in/out** — smooth transitions when toggling features
 
 ### Known issues

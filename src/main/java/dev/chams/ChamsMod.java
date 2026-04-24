@@ -25,6 +25,8 @@ public class ChamsMod implements ClientModInitializer {
     private static KeyMapping keySkeleton;
     private static KeyMapping keyHitbox;
     private static KeyMapping keyGlow;
+    private static KeyMapping keyTracers;
+    private static KeyMapping keyMaster;
     private static KeyMapping keyOpenMenu;
 
     @Override
@@ -37,6 +39,8 @@ public class ChamsMod implements ClientModInitializer {
         keySkeleton = register("toggle_skeleton", cfg.hotkeySkeleton);
         keyHitbox   = register("toggle_hitbox",   cfg.hotkeyHitbox);
         keyGlow     = register("toggle_glow",     cfg.hotkeyGlow);
+        keyTracers  = register("toggle_tracers",  cfg.hotkeyTracers);
+        keyMaster   = register("toggle_master",   cfg.hotkeyMaster);
         keyOpenMenu = register("open_menu",       cfg.hotkeyOpenMenu);
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -61,6 +65,16 @@ public class ChamsMod implements ClientModInitializer {
                 c.glowEnabled = !c.glowEnabled;
                 c.save();
                 notify(client, "Glow", c.glowEnabled);
+            }
+            while (keyTracers.consumeClick()) {
+                c.tracersEnabled = !c.tracersEnabled;
+                c.save();
+                notify(client, "Tracers", c.tracersEnabled);
+            }
+            while (keyMaster.consumeClick()) {
+                c.masterEnabled = !c.masterEnabled;
+                c.save();
+                notify(client, "ESP Master", c.masterEnabled);
             }
             while (keyOpenMenu.consumeClick()) {
                 if (client.screen == null) {

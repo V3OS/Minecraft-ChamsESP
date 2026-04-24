@@ -1,23 +1,26 @@
 package dev.chams.render;
 
 import dev.chams.config.ChamsConfig;
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.util.Mth;
+import net.minecraft.world.scores.PlayerTeam;
 
 import java.awt.Color;
 
 /**
- * Zentrale Farb-Aufloesung fuer Skelett, Hitbox und Glow.
+ * Zentrale Farb-Aufloesung fuer Skelett, Hitbox, Glow und Tracer.
  *
  * Prioritaeten (hoch -&gt; niedrig):
  *   1. Chroma (pro Feature toggelbar)
- *   2. Distance-Color (global toggelbar)
- *   3. Feature-spezifischer Modus (z.B. Skelett Health-Farbe)
- *   4. Feste Farbe aus der Config
+ *   2. Team-Farbe aus dem Scoreboard (global toggelbar)
+ *   3. Distance-Color (global toggelbar)
+ *   4. Feature-spezifischer Modus (z.B. Skelett Health-Farbe)
+ *   5. Feste Farbe aus der Config
  */
 public final class ColorResolver {
 
-    public enum Feature { SKELETON, HITBOX, GLOW }
+    public enum Feature { SKELETON, HITBOX, GLOW, TRACER }
 
     private ColorResolver() {}
 
@@ -30,7 +33,13 @@ public final class ColorResolver {
             return chroma(cfg.chromaSpeed);
         }
 
-        // 2. Distance-Color
+        // 2. Team-Farbe
+        if (cfg.teamColorEnabled) {
+            Integer teamRgb = teamColor(target);
+            if (teamRgb != null) return teamRgb;
+        }
+
+        // 3. Distance-Color
         if (cfg.distanceColorEnabled && self != null) {
             double dsq = target.distanceToSqr(self);
             double d = Math.sqrt(dsq);
@@ -38,8 +47,18 @@ public final class ColorResolver {
             return lerpRgb(cfg.distanceColorClose, cfg.distanceColorFar, t);
         }
 
-        // 3 + 4. Feature-Default
+        // 4 + 5. Feature-Default
         return defaultColor(feature, target, cfg);
+    }
+
+    /** Holt die Team-Farbe als 0xRRGGBB, oder null wenn kein Team / keine Farbe. */
+    private static Integer teamColor(AbstractClientPlayer player) {
+        PlayerTeam team = player.getTeam();
+        if (team == null) return null;
+        ChatFormatting fmt = team.getColor();
+        if (fmt == null) return null;
+        Integer rgb = fmt.getColor();
+        return rgb; // kann null sein (z.B. RESET)
     }
 
     // ------------------------------------------------------------------
@@ -51,6 +70,7 @@ public final class ColorResolver {
             case SKELETON -> cfg.chromaSkeleton;
             case HITBOX   -> cfg.chromaHitbox;
             case GLOW     -> cfg.chromaGlow;
+            case TRACER   -> cfg.chromaTracer;
         };
     }
 
@@ -59,6 +79,7 @@ public final class ColorResolver {
             case SKELETON -> skeletonBase(target, cfg);
             case HITBOX   -> cfg.hitboxColor;
             case GLOW     -> cfg.glowColor;
+            case TRACER   -> cfg.tracerColor;
         };
     }
 
