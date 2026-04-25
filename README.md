@@ -15,6 +15,9 @@ Built on the modern deferred rendering pipeline (`SubmitNodeCollector` / `Render
 | **Hitbox ESP** | Bounding box around each player | `J` |
 | **Glow** | Full-player color tint silhouette | `K` |
 | **Tracers** | Line from your view to each player | `Y` |
+| **2D Box ESP** | Screen-space rectangle around each player | `B` |
+| **Name / Distance Tag** | Floating name + distance text above player | *(menu)* |
+| **2D Health Bar** | Vertical health indicator next to box | *(menu)* |
 | **ESP Master Toggle** | Kill-switch for all ESP features at once | `Right Ctrl` |
 | **Settings Menu** | In-game configuration screen | `Right Shift` |
 
@@ -36,10 +39,13 @@ All feature keys can be rebound in Minecraft's standard **Options → Controls �
 
 Open with `Right Shift`. Lets you configure:
 
-- Individual feature toggles (Skin / Skeleton / Hitbox / Glow)
+- Individual feature toggles (Skin / Skeleton / Hitbox / Glow / Tracers / Master)
 - Skin-Chams sub-toggles: show armor, show capes
 - Skeleton color mode: `Health (red→green)` or `Fixed hex color`
-- Per-feature hex color: Skeleton, Glow, Hitbox
+- Per-feature hex color: Skeleton, Glow, Hitbox, Tracer
+- Coloring: Chroma per-feature, Team-color, Distance-color
+- Filters: Range limit, FOV cone limit
+- **HUD / 2D ESP sub-screen**: 2D box, name tag, distance tag, health bar (drawn through walls in screen space)
 
 Changes are persisted immediately to `.minecraft/config/chams-esp.json`.
 
@@ -71,7 +77,9 @@ dev.chams
 ├── gui
 │   └── ChamsConfigScreen         Settings GUI (Screen subclass)
 └── render
-    ├── ChamsRenderer             WorldRenderEvents.AFTER_ENTITIES hook
+    ├── ChamsRenderer             WorldRenderEvents.AFTER_ENTITIES hook (3D ESP)
+    ├── ChamsHudRenderer          END_MAIN + HudElementRegistry (2D / HUD ESP)
+    ├── ColorResolver             Chroma / team / distance color priority chain
     ├── ChamsRenderTypes          Custom RenderType/Pipeline factory
     ├── ChamsRenderTypeTransform  Reflection-based pipeline cloner
     └── ChamsSubmitNodeCollector  Custom SubmitNodeCollector
@@ -111,10 +119,11 @@ Ordered roughly by priority / impact.
 
 ### More ESP types
 
-- [ ] **2D box ESP** — screen-space rectangle around each player
+- [x] **2D box ESP** — screen-space rectangle around each player
 - [x] **Tracers** — line from crosshair (or screen bottom) to each player
-- [ ] **Health bar** — 2D (overlay) or 3D (billboard)
-- [ ] **Distance / Name text** — floating text above player
+- [x] **Health bar (2D)** — vertical bar next to the 2D box, color by HP
+- [x] **Distance / Name text** — floating text above player
+- [ ] **Health bar (3D billboard)** — alternative variant in world-space
 - [ ] **Item ESP** — highlight dropped items through walls
 - [ ] **Mob ESP** — extend to hostile mobs / entities
 

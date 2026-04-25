@@ -148,12 +148,21 @@ public final class ChamsConfigScreen extends Screen {
         y = addFloatRow("FOV-Winkel (Grad)", rightX, y, colWidth, boxW, h,
                 cfg.fovLimitDegrees, 1f, 180f, v -> { cfg.fovLimitDegrees = v; cfg.save(); }, rowH);
 
-        // ============ FOOTER: Close Button mittig ============
-        int closeY = this.height - 36;
+        // ============ FOOTER: HUD-Link + Close Button ============
+        int footerY = this.height - 36;
+        addRenderableWidget(Button.builder(
+                Component.literal("HUD / 2D ESP..."),
+                b -> {
+                    if (this.minecraft != null) {
+                        this.minecraft.setScreen(new ChamsHudConfigScreen(this));
+                    }
+                }
+        ).bounds(centerX - 244, footerY, 240, h).build());
+
         addRenderableWidget(Button.builder(
                 Component.literal("Speichern & Schliessen"),
                 b -> this.onClose()
-        ).bounds(centerX - 120, closeY, 240, h).build());
+        ).bounds(centerX + 4, footerY, 240, h).build());
     }
 
     // ------------------------------------------------------------------

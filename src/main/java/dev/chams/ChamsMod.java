@@ -3,6 +3,7 @@ package dev.chams;
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.chams.config.ChamsConfig;
 import dev.chams.gui.ChamsConfigScreen;
+import dev.chams.render.ChamsHudRenderer;
 import dev.chams.render.ChamsRenderer;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -26,6 +27,7 @@ public class ChamsMod implements ClientModInitializer {
     private static KeyMapping keyHitbox;
     private static KeyMapping keyGlow;
     private static KeyMapping keyTracers;
+    private static KeyMapping keyBox2d;
     private static KeyMapping keyMaster;
     private static KeyMapping keyOpenMenu;
 
@@ -40,6 +42,7 @@ public class ChamsMod implements ClientModInitializer {
         keyHitbox   = register("toggle_hitbox",   cfg.hotkeyHitbox);
         keyGlow     = register("toggle_glow",     cfg.hotkeyGlow);
         keyTracers  = register("toggle_tracers",  cfg.hotkeyTracers);
+        keyBox2d    = register("toggle_box2d",    cfg.hotkeyBox2d);
         keyMaster   = register("toggle_master",   cfg.hotkeyMaster);
         keyOpenMenu = register("open_menu",       cfg.hotkeyOpenMenu);
 
@@ -71,6 +74,11 @@ public class ChamsMod implements ClientModInitializer {
                 c.save();
                 notify(client, "Tracers", c.tracersEnabled);
             }
+            while (keyBox2d.consumeClick()) {
+                c.box2dEnabled = !c.box2dEnabled;
+                c.save();
+                notify(client, "2D-Box", c.box2dEnabled);
+            }
             while (keyMaster.consumeClick()) {
                 c.masterEnabled = !c.masterEnabled;
                 c.save();
@@ -84,6 +92,7 @@ public class ChamsMod implements ClientModInitializer {
         });
 
         ChamsRenderer.register();
+        ChamsHudRenderer.register();
     }
 
     private static KeyMapping register(String name, int defaultKey) {

@@ -30,6 +30,12 @@ public final class ChamsConfig {
     public boolean glowEnabled     = false;
     public boolean tracersEnabled  = false;
 
+    // ---- HUD / 2D ESP (Screen-Space) -----------------------------------
+    public boolean box2dEnabled       = false;
+    public boolean nameTagEnabled     = false;
+    public boolean distanceTagEnabled = false;
+    public boolean healthBar2dEnabled = false;
+
     // ---- Skin-Chams Sub-Optionen ---------------------------------------
     public boolean chamsShowArmor = true;
     public boolean chamsShowCapes = false; // Cape-Bug: aus bis proper depth-order funktioniert
@@ -44,6 +50,11 @@ public final class ChamsConfig {
     public int hitboxColor = 0xFFFF00; // gelb
     public int tracerColor = 0xFFFFFF; // weiss
 
+    // ---- HUD Farben ----------------------------------------------------
+    public int box2dColor       = 0xFFFFFF;
+    public int nameTagColor     = 0xFFFFFF;
+    public int distanceTagColor = 0xAAAAAA;
+
     // ---- Distance Color ------------------------------------------------
     /** Wenn true, wird die Farbe zwischen close/far je nach Distanz interpoliert. */
     public boolean distanceColorEnabled = false;
@@ -56,6 +67,7 @@ public final class ChamsConfig {
     public boolean chromaHitbox   = false;
     public boolean chromaGlow     = false;
     public boolean chromaTracer   = false;
+    public boolean chromaBox2d    = false;
     /** Zyklen pro Sekunde (0.5 = ein Regenbogen alle 2s). */
     public float chromaSpeed = 0.3f;
 
@@ -80,6 +92,7 @@ public final class ChamsConfig {
     public int hotkeyHitbox    = GLFW.GLFW_KEY_J;
     public int hotkeyGlow      = GLFW.GLFW_KEY_K;
     public int hotkeyTracers   = GLFW.GLFW_KEY_Y;
+    public int hotkeyBox2d     = GLFW.GLFW_KEY_B;
     public int hotkeyMaster    = GLFW.GLFW_KEY_RIGHT_CONTROL;
     public int hotkeyOpenMenu  = GLFW.GLFW_KEY_RIGHT_SHIFT;
 

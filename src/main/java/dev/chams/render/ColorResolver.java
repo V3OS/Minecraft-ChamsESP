@@ -20,7 +20,7 @@ import java.awt.Color;
  */
 public final class ColorResolver {
 
-    public enum Feature { SKELETON, HITBOX, GLOW, TRACER }
+    public enum Feature { SKELETON, HITBOX, GLOW, TRACER, BOX_2D }
 
     private ColorResolver() {}
 
@@ -71,6 +71,7 @@ public final class ColorResolver {
             case HITBOX   -> cfg.chromaHitbox;
             case GLOW     -> cfg.chromaGlow;
             case TRACER   -> cfg.chromaTracer;
+            case BOX_2D   -> cfg.chromaBox2d;
         };
     }
 
@@ -80,6 +81,7 @@ public final class ColorResolver {
             case HITBOX   -> cfg.hitboxColor;
             case GLOW     -> cfg.glowColor;
             case TRACER   -> cfg.tracerColor;
+            case BOX_2D   -> cfg.box2dColor;
         };
     }
 
