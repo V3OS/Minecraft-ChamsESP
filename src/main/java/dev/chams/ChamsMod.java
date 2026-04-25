@@ -12,12 +12,27 @@ import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.List;
+import java.util.function.IntConsumer;
 
 public class ChamsMod implements ClientModInitializer {
 
     public static final Logger LOGGER = LoggerFactory.getLogger("chams-esp");
+
+    // ---- Hotkey-Defaults (GLFW Key-Codes) -------------------------------
+    // Werden vom HotkeyBinder fuer "Reset" referenziert.
+    public static final int HOTKEY_SKIN_DEFAULT      = GLFW.GLFW_KEY_G;
+    public static final int HOTKEY_SKELETON_DEFAULT  = GLFW.GLFW_KEY_H;
+    public static final int HOTKEY_HITBOX_DEFAULT    = GLFW.GLFW_KEY_J;
+    public static final int HOTKEY_GLOW_DEFAULT      = GLFW.GLFW_KEY_K;
+    public static final int HOTKEY_TRACERS_DEFAULT   = GLFW.GLFW_KEY_Y;
+    public static final int HOTKEY_BOX2D_DEFAULT     = GLFW.GLFW_KEY_B;
+    public static final int HOTKEY_MASTER_DEFAULT    = GLFW.GLFW_KEY_RIGHT_CONTROL;
+    public static final int HOTKEY_OPEN_MENU_DEFAULT = GLFW.GLFW_KEY_RIGHT_SHIFT;
 
     private static final KeyMapping.Category CATEGORY =
             KeyMapping.Category.register(Identifier.fromNamespaceAndPath("chams_esp", "esp"));
@@ -30,6 +45,63 @@ public class ChamsMod implements ClientModInitializer {
     private static KeyMapping keyBox2d;
     private static KeyMapping keyMaster;
     private static KeyMapping keyOpenMenu;
+
+    /**
+     * Beschreibung eines Hotkeys fuer die GUI. Enthaelt Label, das KeyMapping,
+     * den Default-Key (fuer Reset) und einen Setter, der die {@link ChamsConfig}-Spalte
+     * synchronisiert (damit options.txt + chams-esp.json konsistent bleiben).
+     */
+    public record HotkeyDef(String label,
+                            KeyMapping mapping,
+                            int defaultKey,
+                            IntConsumer configSetter) {}
+
+    private static List<HotkeyDef> HOTKEYS_CACHE;
+
+    /** Liefert alle Chams-Hotkeys in Anzeige-Reihenfolge fuer die GUI. */
+    public static List<HotkeyDef> getHotkeys() {
+        if (HOTKEYS_CACHE == null) {
+            HOTKEYS_CACHE = List.of(
+                    new HotkeyDef("Skin-Chams",     keySkin,     HOTKEY_SKIN_DEFAULT,
+                            v -> ChamsConfig.get().hotkeySkin = v),
+                    new HotkeyDef("Skeleton",       keySkeleton, HOTKEY_SKELETON_DEFAULT,
+                            v -> ChamsConfig.get().hotkeySkeleton = v),
+                    new HotkeyDef("Hitbox",         keyHitbox,   HOTKEY_HITBOX_DEFAULT,
+                            v -> ChamsConfig.get().hotkeyHitbox = v),
+                    new HotkeyDef("Glow",           keyGlow,     HOTKEY_GLOW_DEFAULT,
+                            v -> ChamsConfig.get().hotkeyGlow = v),
+                    new HotkeyDef("Tracers",        keyTracers,  HOTKEY_TRACERS_DEFAULT,
+                            v -> ChamsConfig.get().hotkeyTracers = v),
+                    new HotkeyDef("2D-Box",         keyBox2d,    HOTKEY_BOX2D_DEFAULT,
+                            v -> ChamsConfig.get().hotkeyBox2d = v),
+                    new HotkeyDef("ESP Master",     keyMaster,   HOTKEY_MASTER_DEFAULT,
+                            v -> ChamsConfig.get().hotkeyMaster = v),
+                    new HotkeyDef("Menu oeffnen",   keyOpenMenu, HOTKEY_OPEN_MENU_DEFAULT,
+                            v -> ChamsConfig.get().hotkeyOpenMenu = v)
+            );
+        }
+        return HOTKEYS_CACHE;
+    }
+
+    /**
+     * Bindet einen Hotkey um. Persistiert sowohl in {@code options.txt} (Vanilla)
+     * als auch in {@code chams-esp.json} (damit Defaults bei einem frischen
+     * Start mit unserer Config wieder passen).
+     *
+     * @param newGlfwKey GLFW-Key-Code, oder {@link InputConstants#UNKNOWN} ({@code -1})
+     *                   um den Hotkey zu unbinden.
+     */
+    public static void rebindHotkey(HotkeyDef def, int newGlfwKey) {
+        InputConstants.Key key = newGlfwKey == InputConstants.UNKNOWN.getValue()
+                ? InputConstants.UNKNOWN
+                : InputConstants.Type.KEYSYM.getOrCreate(newGlfwKey);
+        def.mapping().setKey(key);
+        KeyMapping.resetMapping();
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.options != null) mc.options.save();
+        def.configSetter().accept(newGlfwKey);
+        ChamsConfig.get().save();
+    }
 
     @Override
     public void onInitializeClient() {

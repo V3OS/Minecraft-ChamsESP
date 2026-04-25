@@ -8,6 +8,8 @@ import org.lwjgl.glfw.GLFW;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Persistente Konfiguration für Chams ESP.
@@ -35,6 +37,11 @@ public final class ChamsConfig {
     public boolean nameTagEnabled     = false;
     public boolean distanceTagEnabled = false;
     public boolean healthBar2dEnabled = false;
+    public boolean heldItemEnabled    = false;
+    public boolean armorScoreEnabled  = false;
+
+    /** Position des Distance-Tags relativ zur Box. */
+    public String distanceTagPosition = "BELOW_BOX"; // ABOVE_BOX | BELOW_BOX | INSIDE_BOX_TOP
 
     // ---- Skin-Chams Sub-Optionen ---------------------------------------
     public boolean chamsShowArmor = true;
@@ -96,6 +103,35 @@ public final class ChamsConfig {
     public int hotkeyMaster    = GLFW.GLFW_KEY_RIGHT_CONTROL;
     public int hotkeyOpenMenu  = GLFW.GLFW_KEY_RIGHT_SHIFT;
 
+    // ---- Friend-System -------------------------------------------------
+    /** Master-Toggle fuer das Friend-System (Hide + Highlight). */
+    public boolean friendsEnabled = true;
+    /** Persistente Friend-Liste. */
+    public List<FriendEntry> friends = new ArrayList<>();
+
+    public enum FriendMode {
+        /** Wird wie ein normaler Spieler behandelt. */
+        DEFAULT,
+        /** Wird mit einer eigenen Override-Farbe in allen Renderern markiert. */
+        HIGHLIGHT,
+        /** Wird vollstaendig vom Rendering ausgeschlossen (3D + 2D). */
+        HIDE
+    }
+
+    /** Eintrag in der {@link #friends}-Liste. Gson-kompatibel. */
+    public static final class FriendEntry {
+        public String name;
+        public FriendMode mode = FriendMode.HIGHLIGHT;
+        /** Override-Farbe (0xRRGGBB), nur relevant bei {@link FriendMode#HIGHLIGHT}. */
+        public int highlightColor = 0x00FF66;
+
+        public FriendEntry() {}
+        public FriendEntry(String name) { this.name = name; }
+        public FriendEntry(String name, FriendMode mode, int highlightColor) {
+            this.name = name; this.mode = mode; this.highlightColor = highlightColor;
+        }
+    }
+
     // ====================================================================
     //  Laden / Speichern
     // ====================================================================
@@ -119,7 +155,10 @@ public final class ChamsConfig {
             if (Files.exists(PATH)) {
                 String json = Files.readString(PATH);
                 ChamsConfig loaded = GSON.fromJson(json, ChamsConfig.class);
-                if (loaded != null) return loaded;
+                if (loaded != null) {
+                    loaded.normalize();
+                    return loaded;
+                }
             }
         } catch (Exception e) {
             ChamsMod.LOGGER.warn("Konnte Config nicht laden, nutze Defaults: {}", e.getMessage());
@@ -127,6 +166,18 @@ public final class ChamsConfig {
         ChamsConfig fresh = new ChamsConfig();
         fresh.save();
         return fresh;
+    }
+
+    /** Stellt sicher, dass keine Listen/Strings nach dem Laden null sind. */
+    private void normalize() {
+        if (friends == null) friends = new ArrayList<>();
+        friends.removeIf(fe -> fe == null || fe.name == null || fe.name.isBlank());
+        for (FriendEntry fe : friends) {
+            if (fe.mode == null) fe.mode = FriendMode.HIGHLIGHT;
+        }
+        if (distanceTagPosition == null || distanceTagPosition.isBlank()) {
+            distanceTagPosition = "BELOW_BOX";
+        }
     }
 
     public void save() {

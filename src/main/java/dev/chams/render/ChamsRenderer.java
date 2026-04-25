@@ -8,7 +8,6 @@ import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
@@ -21,7 +20,6 @@ import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 import org.joml.Vector3fc;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public final class ChamsRenderer {
@@ -47,8 +45,7 @@ public final class ChamsRenderer {
         if (!trueChams && !skeleton && !hitbox && !tracers) return;
 
         Minecraft mc = Minecraft.getInstance();
-        ClientLevel world = mc.level;
-        if (world == null || mc.player == null) return;
+        if (mc.level == null || mc.player == null) return;
 
         PoseStack matrices = context.matrices();
         Camera camera = mc.gameRenderer.getMainCamera();
@@ -57,20 +54,8 @@ public final class ChamsRenderer {
         float tickDelta = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
         MultiBufferSource.BufferSource buffers = mc.renderBuffers().bufferSource();
 
-        List<AbstractClientPlayer> players = new ArrayList<>(world.players());
-        players.remove(mc.player);
-        players.removeIf(p -> !p.isAlive());
-
-        // Range-Filter
-        if (cfg.rangeEnabled) {
-            double maxSq = (double) cfg.rangeMaxBlocks * (double) cfg.rangeMaxBlocks;
-            players.removeIf(p -> p.distanceToSqr(mc.player) > maxSq);
-        }
-
-        // FOV-Filter: nur Spieler im Blickkegel rendern
-        if (cfg.fovLimitEnabled && !players.isEmpty()) {
-            applyFovFilter(players, camera, camPos, cfg.fovLimitDegrees);
-        }
+        List<AbstractClientPlayer> players = PlayerFilter.collect(mc, cfg);
+        if (players.isEmpty()) return;
 
         // Hinterste zuerst → nähere überdecken
         players.sort((p1, p2) -> Double.compare(
@@ -85,28 +70,6 @@ public final class ChamsRenderer {
             renderLinesThroughWalls(matrices, buffers, camera, camPos, tickDelta, players,
                                     skeleton, hitbox, tracers, cfg);
         }
-    }
-
-    // ------------------------------------------------------------------
-    //  FOV-Filter
-    // ------------------------------------------------------------------
-    private static void applyFovFilter(List<AbstractClientPlayer> players,
-                                       Camera camera, Vec3 camPos, float fovDegrees) {
-        Vector3fc fwd = camera.forwardVector();
-        double lx = fwd.x(), ly = fwd.y(), lz = fwd.z();
-
-        double halfFov = Math.max(1.0, Math.min(180.0, fovDegrees)) * 0.5;
-        double cosMax  = Math.cos(Math.toRadians(halfFov));
-
-        players.removeIf(p -> {
-            double dx = p.getX() - camPos.x;
-            double dy = p.getY() + p.getBbHeight() * 0.5 - camPos.y;
-            double dz = p.getZ() - camPos.z;
-            double len = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            if (len < 0.01) return false; // direkt auf/im Spieler → drin lassen
-            double cosA = (dx * lx + dy * ly + dz * lz) / len;
-            return cosA < cosMax;
-        });
     }
 
     // ------------------------------------------------------------------

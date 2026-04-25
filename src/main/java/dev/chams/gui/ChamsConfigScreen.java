@@ -1,7 +1,12 @@
 package dev.chams.gui;
 
+import dev.chams.ChamsMod;
 import dev.chams.config.ChamsConfig;
+import dev.chams.config.ChamsConfig.FriendEntry;
+import dev.chams.config.ChamsConfig.FriendMode;
+import dev.chams.config.FriendRegistry;
 import dev.chams.gui.widgets.FloatSlider;
+import dev.chams.gui.widgets.HotkeyBinder;
 import dev.chams.gui.widgets.ModeCycle;
 import dev.chams.gui.widgets.PrimaryButton;
 import dev.chams.gui.widgets.TabButton;
@@ -10,6 +15,7 @@ import dev.chams.gui.widgets.ToggleSwitch;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
@@ -19,9 +25,22 @@ import java.util.function.Consumer;
 /**
  * Modernes Tab-basiertes Settings-Menue fuer Chams ESP.
  *
- * <p>5 Tabs: 3D ESP, 2D HUD, Farben, Filter, Info.
- * Custom-Widgets (ToggleSwitch, FloatSlider, TabButton) statt Vanilla
- * CycleButton fuer einheitliche, kompaktere Optik.
+ * <p>7 Tabs: 3D ESP, 2D HUD, Farben, Filter, Freunde, Hotkeys, Info.
+ * Custom-Widgets (ToggleSwitch, FloatSlider, TabButton, HotkeyBinder) statt
+ * Vanilla CycleButton fuer einheitliche, kompaktere Optik.
+ *
+ * <p>Im FRIENDS-Tab werden Spieler per Name eingetragen und auf
+ * {@link FriendMode#DEFAULT}, {@link FriendMode#HIGHLIGHT} (eigene Farbe)
+ * oder {@link FriendMode#HIDE} (kein Rendering) gestellt. {@code HIDE}
+ * wirkt zentral ueber {@code PlayerFilter#collect} -- entfernt den
+ * Spieler in 3D + 2D Renderern gleichzeitig.
+ *
+ * <p>Im HOTKEYS-Tab kann jede Belegung in-place neu gesetzt werden:
+ * {@link HotkeyBinder} fängt im Capture-Modus die nächste Taste ab und
+ * persistiert sowohl in {@code options.txt} (Vanilla) als auch in
+ * {@code chams-esp.json}. Tasten-Routing erfolgt über
+ * {@link #keyPressed(KeyEvent)} -- nur dort wird ESC nicht zum
+ * Screen-Close, sondern zum Capture-Cancel.
  */
 public final class ChamsConfigScreen extends Screen {
 
@@ -33,6 +52,8 @@ public final class ChamsConfigScreen extends Screen {
         HUD_2D("2D HUD"),
         COLORING("Farben"),
         FILTERS("Filter"),
+        FRIENDS("Freunde"),
+        HOTKEYS("Hotkeys"),
         INFO("Info");
 
         final String label;
@@ -95,6 +116,8 @@ public final class ChamsConfigScreen extends Screen {
             case HUD_2D   -> initHud2D(contentX, contentY);
             case COLORING -> initColoring(contentX, contentY);
             case FILTERS  -> initFilters(contentX, contentY);
+            case FRIENDS  -> initFriends(contentX, contentY);
+            case HOTKEYS  -> initHotkeys(contentX, contentY);
             case INFO     -> initInfo(contentX, contentY);
         }
 
@@ -174,7 +197,7 @@ public final class ChamsConfigScreen extends Screen {
         int rightX = x0 + colW + 12;
 
         int y = y0;
-        y = card(leftX, y, colW, "Features", 4);
+        y = card(leftX, y, colW, "Features", 6);
         y = toggle(leftX, y, colW, "2D Box",
                 cfg.box2dEnabled, v -> { cfg.box2dEnabled = v; cfg.save(); });
         y = toggle(leftX, y, colW, "Name-Tag",
@@ -183,6 +206,23 @@ public final class ChamsConfigScreen extends Screen {
                 cfg.distanceTagEnabled, v -> { cfg.distanceTagEnabled = v; cfg.save(); });
         y = toggle(leftX, y, colW, "Health-Bar (2D)",
                 cfg.healthBar2dEnabled, v -> { cfg.healthBar2dEnabled = v; cfg.save(); });
+        y = toggle(leftX, y, colW, "Held-Item Icon",
+                cfg.heldItemEnabled, v -> { cfg.heldItemEnabled = v; cfg.save(); });
+        y = toggle(leftX, y, colW, "Armor-Score",
+                cfg.armorScoreEnabled, v -> { cfg.armorScoreEnabled = v; cfg.save(); });
+        y = endCard(y);
+
+        y = card(leftX, y, colW, "Distanz-Tag Position", 1);
+        y = modeCycle(leftX, y, colW, "Position",
+                List.of("ABOVE_BOX", "BELOW_BOX", "INSIDE_BOX_TOP"),
+                cfg.distanceTagPosition,
+                v -> switch (v) {
+                    case "ABOVE_BOX"      -> "Ueber Box";
+                    case "BELOW_BOX"      -> "Unter Box";
+                    case "INSIDE_BOX_TOP" -> "Innen oben";
+                    default               -> v;
+                },
+                v -> { cfg.distanceTagPosition = v; cfg.save(); });
         endCard(y);
 
         y = y0;
@@ -270,6 +310,200 @@ public final class ChamsConfigScreen extends Screen {
         endCard(y);
     }
 
+    // ------------------------------------------------------------------
+    //  Tab: FRIENDS
+    // ------------------------------------------------------------------
+    private void initFriends(int x0, int y0) {
+        ChamsConfig cfg = ChamsConfig.get();
+        int leftX = x0;
+        int colW = CONTENT_W;
+
+        int y = y0;
+
+        // ----- Master-Toggle -----
+        y = card(leftX, y, colW, "Master", 1);
+        y = toggle(leftX, y, colW, "Friend-System aktiv",
+                cfg.friendsEnabled, v -> {
+                    cfg.friendsEnabled = v;
+                    cfg.save();
+                    FriendRegistry.invalidate();
+                });
+        y = endCard(y);
+
+        // ----- Add-Input -----
+        y = card(leftX, y, colW, "Freund hinzufuegen", 1);
+        int rowY = y;
+        int innerX = leftX + 6;
+        int innerW = colW - 12;
+        int btnW = 80;
+        int gap = 6;
+        int boxW = innerW - btnW - gap;
+
+        EditBox nameBox = new EditBox(this.font, innerX, rowY, boxW, ROW_H,
+                Component.literal(""));
+        nameBox.setMaxLength(16); // Vanilla Username-Limit
+        nameBox.setHint(Component.literal("Spielername"));
+        addRenderableWidget(nameBox);
+
+        addRenderableWidget(new PrimaryButton(
+                innerX + boxW + gap, rowY, btnW, ROW_H,
+                "+ Hinzufuegen", true, () -> {
+                    String n = nameBox.getValue().trim();
+                    if (n.isEmpty()) return;
+                    // Doppelte verhindern (case-insensitive)
+                    boolean exists = cfg.friends.stream()
+                            .anyMatch(fe -> fe.name != null
+                                    && fe.name.equalsIgnoreCase(n));
+                    if (!exists) {
+                        cfg.friends.add(new FriendEntry(n));
+                        cfg.save();
+                        FriendRegistry.invalidate();
+                    }
+                    nameBox.setValue("");
+                    this.rebuildWidgets();
+                }));
+        y = rowY + ROW_H + ROW_GAP;
+        y = endCard(y);
+
+        // ----- Liste -----
+        int listRowCount = Math.max(1, cfg.friends.size());
+        y = card(leftX, y, colW, "Freunde (" + cfg.friends.size() + ")", listRowCount);
+
+        if (cfg.friends.isEmpty()) {
+            y = textRow(leftX, y, colW, "\u00A77Keine Freunde eingetragen.");
+        } else {
+            // Snapshot, damit Remove-Operationen waehrend der Iteration sicher sind
+            List<FriendEntry> snapshot = new ArrayList<>(cfg.friends);
+            for (FriendEntry fe : snapshot) {
+                y = friendRow(leftX, y, colW, fe);
+            }
+        }
+        endCard(y);
+    }
+
+    /** Eine Zeile pro Freund: Name links, ModeCycle, Color-Swatch, Remove-Button. */
+    private int friendRow(int x, int y, int w, FriendEntry fe) {
+        ChamsConfig cfg = ChamsConfig.get();
+        int innerX = x + 6;
+        int innerW = w - 12;
+
+        // Layout: Name (links, fix) | ModeCycle (mittel) | Hex-Box+Swatch (kompakt) | X (klein)
+        int xBtnW   = ROW_H;          // Remove
+        int swatchW = ROW_H;          // Color-Swatch
+        int hexW    = 60;             // Hex-EditBox
+        int modeW   = 110;            // ModeCycle
+        int gap     = 4;
+        int nameW   = innerW - modeW - hexW - swatchW - xBtnW - gap * 4;
+
+        int nameX   = innerX;
+        int modeX   = nameX + nameW + gap;
+        int hexX    = modeX + modeW + gap;
+        int swatchX = hexX + hexW + gap;
+        int xBtnX   = swatchX + swatchW + gap;
+
+        // Name-Label (deferred draw)
+        final int finalNameX = nameX;
+        final int finalNameY = y + (ROW_H - this.font.lineHeight) / 2 + 1;
+        final String finalName = fe.name == null ? "?" : fe.name;
+        deferred.add((ctx, mx, my, dt) ->
+                ctx.drawString(this.font, finalName, finalNameX, finalNameY,
+                        Theme.TEXT_PRIMARY, false));
+
+        // ModeCycle
+        addRenderableWidget(new ModeCycle(modeX, y, modeW, ROW_H,
+                "Mode",
+                List.of("DEFAULT", "HIGHLIGHT", "HIDE"),
+                fe.mode == null ? "HIGHLIGHT" : fe.mode.name(),
+                v -> switch (v) {
+                    case "DEFAULT"   -> "Default";
+                    case "HIGHLIGHT" -> "Highlight";
+                    case "HIDE"      -> "Hide";
+                    default          -> v;
+                },
+                v -> {
+                    fe.mode = FriendMode.valueOf(v);
+                    cfg.save();
+                    FriendRegistry.invalidate();
+                }));
+
+        // Hex-EditBox + Live-Swatch (nur sinnvoll bei HIGHLIGHT)
+        EditBox hexBox = new EditBox(this.font, hexX, y, hexW, ROW_H,
+                Component.literal(""));
+        hexBox.setMaxLength(6);
+        hexBox.setValue(String.format("%06X", fe.highlightColor & 0xFFFFFF));
+        final int[] currentColor = { fe.highlightColor & 0xFFFFFF };
+        hexBox.setResponder(val -> {
+            if (val == null || val.length() != 6) return;
+            try {
+                int parsed = Integer.parseInt(val, 16);
+                currentColor[0] = parsed;
+                fe.highlightColor = parsed;
+                cfg.save();
+                FriendRegistry.invalidate();
+            } catch (NumberFormatException ignored) {}
+        });
+        addRenderableWidget(hexBox);
+        swatches.add(new ColorSwatch(swatchX, y, ROW_H, currentColor));
+
+        // Remove-Button
+        addRenderableWidget(new PrimaryButton(xBtnX, y, xBtnW, ROW_H,
+                "x", false, () -> {
+                    cfg.friends.removeIf(other -> other == fe);
+                    cfg.save();
+                    FriendRegistry.invalidate();
+                    this.rebuildWidgets();
+                }));
+
+        return y + ROW_H + ROW_GAP;
+    }
+
+    // ------------------------------------------------------------------
+    //  Tab: HOTKEYS
+    // ------------------------------------------------------------------
+    private void initHotkeys(int x0, int y0) {
+        int leftX = x0;
+        int colW = CONTENT_W;
+
+        List<ChamsMod.HotkeyDef> defs = ChamsMod.getHotkeys();
+
+        int y = y0;
+        y = card(leftX, y, colW, "Hotkey-Belegung", defs.size());
+        for (ChamsMod.HotkeyDef def : defs) {
+            y = hotkeyRow(leftX, y, colW, def);
+        }
+        y = endCard(y);
+
+        y = card(leftX, y, colW, "Steuerung", 3);
+        y = textRow(leftX, y, colW,
+                "\u00A77- Klick auf eine Belegung -> Taste druecken zum Binden.");
+        y = textRow(leftX, y, colW,
+                "\u00A77- BACKSPACE = Default, DELETE = Unbinden, ESC = Abbrechen.");
+        y = textRow(leftX, y, colW,
+                "\u00A77- Aenderungen werden in options.txt + chams-esp.json gespeichert.");
+        endCard(y);
+    }
+
+    private int hotkeyRow(int x, int y, int w, ChamsMod.HotkeyDef def) {
+        int innerX = x + 6;
+        int innerW = w - 12;
+        int resetW = 60;
+        int gap = 6;
+        int binderW = innerW - resetW - gap;
+
+        addRenderableWidget(new HotkeyBinder(innerX, y, binderW, ROW_H, def));
+        addRenderableWidget(new PrimaryButton(
+                innerX + binderW + gap, y, resetW, ROW_H,
+                "Default", false,
+                () -> {
+                    ChamsMod.rebindHotkey(def, def.defaultKey());
+                    this.rebuildWidgets();
+                }));
+        return y + ROW_H + ROW_GAP;
+    }
+
+    // ------------------------------------------------------------------
+    //  Tab: INFO
+    // ------------------------------------------------------------------
     private void initInfo(int x0, int y0) {
         // Card-Header rendert sich selbst, Inhalt rendern wir ueber deferred-Labels
         int colW = CONTENT_W;
@@ -482,6 +716,25 @@ public final class ChamsConfigScreen extends Screen {
     public void onClose() {
         ChamsConfig.get().save();
         if (this.minecraft != null) this.minecraft.setScreen(this.parent);
+    }
+
+    /**
+     * Tasten-Routing: Wenn ein {@link HotkeyBinder} im Capture-Modus ist, fangen
+     * wir die Taste hier ab und reichen sie an den Binder weiter -- so wird ESC
+     * z.B. zum Abbrechen-Trigger statt zum Screen-Close, und beliebige andere
+     * Tasten landen bei {@code rebindHotkey}, statt am Default-Screen-Handler
+     * (der bei manchen Tasten den Screen schliessen wuerde).
+     */
+    @Override
+    public boolean keyPressed(KeyEvent event) {
+        HotkeyBinder active = HotkeyBinder.getActiveBinder();
+        if (active != null && active.isCapturing()) {
+            if (active.handleKey(event.key())) {
+                this.rebuildWidgets();
+                return true;
+            }
+        }
+        return super.keyPressed(event);
     }
 
     // ==================================================================

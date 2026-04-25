@@ -2,16 +2,19 @@ package dev.chams.render;
 
 import dev.chams.config.ChamsConfig;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
 import net.minecraft.client.Camera;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Vector3fc;
@@ -45,7 +48,10 @@ public final class ChamsHudRenderer {
 
     public static void register() {
         WorldRenderEvents.END_MAIN.register(ChamsHudRenderer::captureProjections);
-        HudElementRegistry.addLast(HUD_LAYER_ID, ChamsHudRenderer::drawHud);
+        // Vor Chat einhaengen: ESP-Overlay zeichnet zuerst, Chat liegt darueber
+        // -> Chat / F3 / Bossbar bleiben lesbar.
+        HudElementRegistry.attachElementBefore(
+                VanillaHudElements.CHAT, HUD_LAYER_ID, ChamsHudRenderer::drawHud);
     }
 
     // ==================================================================
@@ -58,7 +64,8 @@ public final class ChamsHudRenderer {
         ChamsConfig cfg = ChamsConfig.get();
         if (!cfg.masterEnabled) return;
         boolean anyHud = cfg.box2dEnabled || cfg.nameTagEnabled
-                || cfg.distanceTagEnabled || cfg.healthBar2dEnabled;
+                || cfg.distanceTagEnabled || cfg.healthBar2dEnabled
+                || cfg.heldItemEnabled || cfg.armorScoreEnabled;
         if (!anyHud) return;
 
         Minecraft mc = Minecraft.getInstance();
@@ -72,24 +79,11 @@ public final class ChamsHudRenderer {
 
         int guiW = mc.getWindow().getGuiScaledWidth();
         int guiH = mc.getWindow().getGuiScaledHeight();
-        int screenW = mc.getWindow().getScreenWidth();
-        int screenH = mc.getWindow().getScreenHeight();
-        double sx = screenW > 0 ? (double) guiW / screenW : 1.0;
-        double sy = screenH > 0 ? (double) guiH / screenH : 1.0;
 
         float partial = mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
 
-        List<AbstractClientPlayer> players = new ArrayList<>(mc.level.players());
-        players.remove(mc.player);
-        players.removeIf(p -> !p.isAlive());
-
-        if (cfg.rangeEnabled) {
-            double maxSq = (double) cfg.rangeMaxBlocks * (double) cfg.rangeMaxBlocks;
-            players.removeIf(p -> p.distanceToSqr(mc.player) > maxSq);
-        }
-        if (cfg.fovLimitEnabled) {
-            applyFovFilter(players, camPos, fx, fy, fz, cfg.fovLimitDegrees);
-        }
+        List<AbstractClientPlayer> players = PlayerFilter.collect(mc, cfg);
+        if (players.isEmpty()) return;
 
         for (AbstractClientPlayer p : players) {
             // Interpolierte Position fuer smoothes Tracking
@@ -105,7 +99,7 @@ public final class ChamsHudRenderer {
             double dot = cx * fx + cy * fy + cz * fz;
             if (dot < 0.05) continue; // hinter / direkt auf der Kamera
 
-            ProjectedBox box = projectAabb(gr, camPos, fx, fy, fz, bb, sx, sy);
+            ProjectedBox box = projectAabb(gr, camPos, fx, fy, fz, bb, guiW, guiH);
             if (box == null) continue;
             if (box.maxX <= 0 || box.minX >= guiW) continue;
             if (box.maxY <= 0 || box.minY >= guiH) continue;
@@ -115,31 +109,18 @@ public final class ChamsHudRenderer {
         }
     }
 
-    private static void applyFovFilter(List<AbstractClientPlayer> players,
-                                       Vec3 camPos,
-                                       double lx, double ly, double lz,
-                                       float fovDegrees) {
-        double half = Math.max(1.0, Math.min(180.0, fovDegrees)) * 0.5;
-        double cosMax = Math.cos(Math.toRadians(half));
-        players.removeIf(p -> {
-            double dx = p.getX() - camPos.x;
-            double dy = p.getY() + p.getBbHeight() * 0.5 - camPos.y;
-            double dz = p.getZ() - camPos.z;
-            double len = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            if (len < 0.01) return false;
-            double cosA = (dx * lx + dy * ly + dz * lz) / len;
-            return cosA < cosMax;
-        });
-    }
-
     /**
      * Projiziert die 8 Eckpunkte einer AABB und liefert das umschliessende
      * Rechteck in GUI-skalierten Pixeln zurueck. Liefert null wenn ALLE
      * Ecken hinter der Kamera liegen.
+     *
+     * <p>{@link GameRenderer#projectPointToScreen(Vec3)} liefert
+     * <b>NDC-Koordinaten</b> im Bereich [-1, +1] (Y nach oben). Wir rechnen
+     * das hier auf GUI-Pixel um und flippen Y, damit (0,0) oben links liegt.
      */
     private static ProjectedBox projectAabb(GameRenderer gr, Vec3 camPos,
                                             double fx, double fy, double fz,
-                                            AABB bb, double sx, double sy) {
+                                            AABB bb, int guiW, int guiH) {
         double[][] corners = {
                 {bb.minX, bb.minY, bb.minZ},
                 {bb.maxX, bb.minY, bb.minZ},
@@ -161,11 +142,14 @@ public final class ChamsHudRenderer {
             double dot = dx * fx + dy * fy + dz * fz;
             if (dot < 0.05) continue; // Ecke hinter Kamera -> ueberspringen
 
-            Vec3 screen = gr.projectPointToScreen(new Vec3(c[0], c[1], c[2]));
-            // projectPointToScreen liefert Pixel-Koordinaten im physischen
-            // Framebuffer; auf GUI-Skala umrechnen.
-            float px = (float) (screen.x * sx);
-            float py = (float) (screen.y * sy);
+            Vec3 ndc = gr.projectPointToScreen(new Vec3(c[0], c[1], c[2]));
+            // Bei w<=0 (Kamera-Ebene) liefert transformProject NaN/Inf.
+            if (!Double.isFinite(ndc.x) || !Double.isFinite(ndc.y)) continue;
+
+            // NDC ([-1,+1], Y nach oben) -> GUI-Pixel (0..guiW/guiH, Y nach unten)
+            float px = (float) ((ndc.x + 1.0) * 0.5 * guiW);
+            float py = (float) ((1.0 - ndc.y) * 0.5 * guiH);
+
             anyInFront = true;
             if (px < minX) minX = px;
             if (py < minY) minY = py;
@@ -188,35 +172,119 @@ public final class ChamsHudRenderer {
         Minecraft mc = Minecraft.getInstance();
         AbstractClientPlayer self = mc.player;
         if (self == null) return;
+        Font font = mc.font;
 
         for (HudPlayer hp : projected) {
             ProjectedBox box = hp.box;
 
+            // ----- Box -----
             if (cfg.box2dEnabled) {
                 int col = ColorResolver.resolve(ColorResolver.Feature.BOX_2D,
                         hp.player, self, cfg);
                 drawBoxOutline(ctx, box, col);
             }
 
+            // ----- Health-Bar -----
             if (cfg.healthBar2dEnabled) {
                 drawHealthBar(ctx, box, hp.player);
             }
 
-            float textCenterX = (box.minX + box.maxX) * 0.5f;
-            float textTopY = box.minY - 2f;
+            // ----- Armor-Score (rechts neben Health-Bar) -----
+            if (cfg.armorScoreEnabled) {
+                int armor = hp.player.getArmorValue();
+                String label = "A:" + armor;
+                int x = (int) Math.ceil(box.maxX) + 2;
+                int y = (int) Math.floor(box.minY);
+                ctx.drawString(font, label, x, y, 0xFFB8B8B8, true);
+            }
 
-            if (cfg.nameTagEnabled) {
-                String name = hp.player.getPlainTextName();
-                drawCenteredShadowed(ctx, name, textCenterX, textTopY - 10,
-                        cfg.nameTagColor);
+            // ----- Text-Stack ueber/unter der Box -----
+            float textCenterX = (box.minX + box.maxX) * 0.5f;
+            float textTopY = box.minY - 2f;       // Baseline fuer Texte UEBER der Box
+            float textBottomY = box.maxY + 2f;    // Baseline fuer Texte UNTER der Box
+
+            // Distance-Position bestimmen
+            String distPos = cfg.distanceTagPosition == null
+                    ? "BELOW_BOX" : cfg.distanceTagPosition;
+            String distText = cfg.distanceTagEnabled
+                    ? formatDistance(hp.distance) : null;
+            int distColor = cfg.distanceTagColor;
+
+            // Distance ABOVE_BOX (zuerst, dann Name darueber)
+            if (distText != null && "ABOVE_BOX".equals(distPos)) {
+                drawCenteredShadowed(ctx, distText, textCenterX, textTopY - 10, distColor);
                 textTopY -= 10;
             }
-            if (cfg.distanceTagEnabled) {
-                String s = String.format(Locale.ROOT, "%.1fm", hp.distance);
-                drawCenteredShadowed(ctx, s, textCenterX, textTopY - 10,
-                        cfg.distanceTagColor);
+
+            // ----- Name + Held-Item (oberhalb der Box) -----
+            if (cfg.nameTagEnabled) {
+                String name = hp.player.getPlainTextName();
+                int nameY = (int) (textTopY - 10);
+
+                if (cfg.heldItemEnabled) {
+                    ItemStack mainHand = hp.player.getMainHandItem();
+                    if (!mainHand.isEmpty()) {
+                        int nameW = font.width(name);
+                        int iconSize = 16;
+                        int gap = 2;
+                        int totalW = iconSize + gap + nameW;
+                        int iconX = (int) (textCenterX - totalW * 0.5f);
+                        int textX = iconX + iconSize + gap;
+                        int iconY = nameY - 4; // Icon vertikal etwas hoeher als Text
+                        drawHeldItem(ctx, font, mainHand, iconX, iconY);
+                        ctx.drawString(font, name, textX, nameY, cfg.nameTagColor, true);
+                    } else {
+                        drawCenteredShadowed(ctx, name, textCenterX, nameY,
+                                cfg.nameTagColor);
+                    }
+                } else {
+                    drawCenteredShadowed(ctx, name, textCenterX, nameY,
+                            cfg.nameTagColor);
+                }
+                textTopY -= 10;
+            } else if (cfg.heldItemEnabled) {
+                // Held-Item ohne Name: zentriertes Icon
+                ItemStack mainHand = hp.player.getMainHandItem();
+                if (!mainHand.isEmpty()) {
+                    int iconSize = 16;
+                    int iconX = (int) (textCenterX - iconSize * 0.5f);
+                    int iconY = (int) (textTopY - iconSize - 2);
+                    drawHeldItem(ctx, font, mainHand, iconX, iconY);
+                    textTopY -= iconSize + 2;
+                }
+            }
+
+            // Distance BELOW_BOX (unter der Box)
+            if (distText != null && "BELOW_BOX".equals(distPos)) {
+                drawCenteredShadowed(ctx, distText, textCenterX, textBottomY, distColor);
+            }
+
+            // Distance INSIDE_BOX_TOP (oben innen, halbtransparenter BG)
+            if (distText != null && "INSIDE_BOX_TOP".equals(distPos)) {
+                int textW = font.width(distText);
+                int x = (int) (textCenterX - textW * 0.5f);
+                int y = (int) box.minY + 2;
+                ctx.fill(x - 2, y - 1, x + textW + 2, y + font.lineHeight + 1, 0x80000000);
+                ctx.drawString(font, distText, x, y, distColor, true);
             }
         }
+    }
+
+    /** "12.4m" fuer < 10m, "42m" fuer >= 10m. */
+    private static String formatDistance(double d) {
+        if (d < 10.0) return String.format(Locale.ROOT, "%.1fm", d);
+        return String.format(Locale.ROOT, "%.0fm", d);
+    }
+
+    /**
+     * Zeichnet ein Item-Icon mit Decorations (Durability-Bar, Stack-Count).
+     * {@code renderItem} kuemmert sich intern um den Z-Stack der Item-Geometry,
+     * also muessen wir hier nicht selbst pushMatrix/popMatrix drumlegen.
+     */
+    private static void drawHeldItem(GuiGraphics ctx, Font font, ItemStack stack,
+                                     int x, int y) {
+        ctx.renderItem(stack, x, y);
+        ctx.renderItemDecorations(font, stack, x, y);
     }
 
     /** Zeichnet 4 1px-Kanten um die Box. */

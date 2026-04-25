@@ -1,6 +1,9 @@
 package dev.chams.render;
 
 import dev.chams.config.ChamsConfig;
+import dev.chams.config.ChamsConfig.FriendEntry;
+import dev.chams.config.ChamsConfig.FriendMode;
+import dev.chams.config.FriendRegistry;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.util.Mth;
@@ -12,6 +15,7 @@ import java.awt.Color;
  * Zentrale Farb-Aufloesung fuer Skelett, Hitbox, Glow und Tracer.
  *
  * Prioritaeten (hoch -&gt; niedrig):
+ *   0. Friend-HIGHLIGHT (per-Spieler Override; HIDE wird in {@link PlayerFilter} behandelt)
  *   1. Chroma (pro Feature toggelbar)
  *   2. Team-Farbe aus dem Scoreboard (global toggelbar)
  *   3. Distance-Color (global toggelbar)
@@ -28,6 +32,16 @@ public final class ColorResolver {
                               AbstractClientPlayer target,
                               AbstractClientPlayer self,
                               ChamsConfig cfg) {
+        // 0. Friend-HIGHLIGHT: per-Spieler Override schlaegt alles.
+        // HIDE wird hier nicht behandelt - das macht der Filter, der den Spieler
+        // gar nicht erst in die Render-Liste laesst.
+        if (cfg.friendsEnabled && target != null) {
+            FriendEntry fe = FriendRegistry.find(target.getGameProfile().name());
+            if (fe != null && fe.mode == FriendMode.HIGHLIGHT) {
+                return fe.highlightColor;
+            }
+        }
+
         // 1. Chroma
         if (isChroma(feature, cfg)) {
             return chroma(cfg.chromaSpeed);
